@@ -3,15 +3,16 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
 import { priorities, statuses, type AssignmentFormValues } from "../types/assignment";
 
-type AddAssignmentModalProps = {
-  isOpen: boolean;
+type AssignmentFormModalProps = {
+  mode: "add" | "edit";
+  initialValues?: AssignmentFormValues;
   onClose: () => void;
-  onAdd: (values: AssignmentFormValues) => void;
+  onSubmit: (values: AssignmentFormValues) => void;
 };
 
 type FormErrors = Partial<Record<"title" | "subject" | "dueDate", string>>;
 
-const initialFormValues: AssignmentFormValues = {
+const emptyFormValues: AssignmentFormValues = {
   title: "",
   subject: "",
   dueDate: "",
@@ -22,14 +23,18 @@ const initialFormValues: AssignmentFormValues = {
 const fieldClassName =
   "mt-2 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-base text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 sm:text-sm";
 
-export function AddAssignmentModal({ isOpen, onClose, onAdd }: AddAssignmentModalProps) {
-  const [values, setValues] = useState<AssignmentFormValues>(initialFormValues);
+export function AssignmentFormModal({
+  mode,
+  initialValues = emptyFormValues,
+  onClose,
+  onSubmit,
+}: AssignmentFormModalProps) {
+  const [values, setValues] = useState<AssignmentFormValues>(initialValues);
   const [errors, setErrors] = useState<FormErrors>({});
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const isEditing = mode === "edit";
 
   useEffect(() => {
-    if (!isOpen) return;
-
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     titleInputRef.current?.focus();
@@ -43,9 +48,7 @@ export function AddAssignmentModal({ isOpen, onClose, onAdd }: AddAssignmentModa
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
+  }, [onClose]);
 
   const updateValue = <Key extends keyof AssignmentFormValues>(
     key: Key,
@@ -70,14 +73,11 @@ export function AddAssignmentModal({ isOpen, onClose, onAdd }: AddAssignmentModa
       return;
     }
 
-    onAdd({
+    onSubmit({
       ...values,
       title: values.title.trim(),
       subject: values.subject.trim(),
     });
-    setValues(initialFormValues);
-    setErrors({});
-    onClose();
   };
 
   const handleBackdropClick = (event: MouseEvent<HTMLDivElement>) => {
@@ -92,21 +92,25 @@ export function AddAssignmentModal({ isOpen, onClose, onAdd }: AddAssignmentModa
       <div
         role="dialog"
         aria-modal="true"
-        aria-labelledby="add-assignment-title"
+        aria-labelledby="assignment-form-title"
         className="max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:max-w-lg sm:rounded-3xl sm:p-7"
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-bold tracking-wide text-indigo-600">NEW ASSIGNMENT</p>
-            <h2 id="add-assignment-title" className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950">
-              課題を追加
+            <p className="text-xs font-bold tracking-wide text-indigo-600">
+              {isEditing ? "EDIT ASSIGNMENT" : "NEW ASSIGNMENT"}
+            </p>
+            <h2 id="assignment-form-title" className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950">
+              課題を{isEditing ? "編集" : "追加"}
             </h2>
-            <p className="mt-1 text-sm text-slate-500">課題の内容と締切を入力してください。</p>
+            <p className="mt-1 text-sm text-slate-500">
+              {isEditing ? "課題の内容を変更できます。" : "課題の内容と締切を入力してください。"}
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="モーダルを閉じる"
+            aria-label={`${isEditing ? "編集" : "追加"}モーダルを閉じる`}
             className="grid size-11 shrink-0 place-items-center rounded-full bg-slate-100 text-xl text-slate-500 transition hover:bg-slate-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
           >
             ×
@@ -191,7 +195,7 @@ export function AddAssignmentModal({ isOpen, onClose, onAdd }: AddAssignmentModa
               type="submit"
               className="min-h-12 rounded-xl bg-indigo-600 px-6 text-sm font-bold text-white shadow-sm shadow-indigo-200 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
             >
-              追加する
+              {isEditing ? "変更を保存" : "追加する"}
             </button>
           </div>
         </form>

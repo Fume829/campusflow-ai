@@ -12,8 +12,13 @@ import {
   sortByDueDate,
 } from "../lib/assignments";
 import type { Assignment, AssignmentFormValues } from "../types/assignment";
-import { AddAssignmentModal } from "./add-assignment-modal";
+import { AssignmentFormModal } from "./assignment-form-modal";
 import { AssignmentCard, PriorityBadge, StatusBadge } from "./assignment-card";
+import { DeleteConfirmationModal } from "./delete-confirmation-modal";
+
+type FormModalState =
+  | { mode: "add" }
+  | { mode: "edit"; assignment: Assignment };
 
 function createAssignmentId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -34,8 +39,10 @@ function loadStoredAssignments(): Assignment[] | null {
 
 export function Dashboard() {
   const [assignments, setAssignments] = useState<Assignment[]>(initialAssignments);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formModal, setFormModal] = useState<FormModalState | null>(null);
+  const [assignmentToDelete, setAssignmentToDelete] = useState<Assignment | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
+  const lastActionButtonRef = useRef<HTMLButtonElement | null>(null);
   const today = useMemo(() => new Date(), []);
 
   useEffect(() => {
@@ -54,23 +61,78 @@ export function Dashboard() {
     };
   }, []);
 
-  const closeModal = useCallback(() => {
-    setIsModalOpen(false);
-    window.setTimeout(() => addButtonRef.current?.focus(), 0);
+  const restoreActionFocus = useCallback(() => {
+    window.setTimeout(() => {
+      const target = lastActionButtonRef.current;
+      if (target?.isConnected) target.focus();
+      else addButtonRef.current?.focus();
+    }, 0);
   }, []);
 
-  const handleAddAssignment = (values: AssignmentFormValues) => {
-    const newAssignment: Assignment = { id: createAssignmentId(), ...values };
+  const closeFormModal = useCallback(() => {
+    setFormModal(null);
+    restoreActionFocus();
+  }, [restoreActionFocus]);
 
+  const closeDeleteModal = useCallback(() => {
+    setAssignmentToDelete(null);
+    restoreActionFocus();
+  }, [restoreActionFocus]);
+
+  const updateAssignments = useCallback((update: (current: Assignment[]) => Assignment[]) => {
     setAssignments((currentAssignments) => {
-      const nextAssignments = sortByDueDate([...currentAssignments, newAssignment]);
+      const nextAssignments = sortByDueDate(update(currentAssignments));
       try {
         window.localStorage.setItem(assignmentStorageKey, JSON.stringify(nextAssignments));
       } catch {
-        // 保存できない環境でも、現在のセッションでは追加内容を表示する。
+        // 保存できない環境でも、現在のセッションでは変更内容を表示する。
       }
       return nextAssignments;
     });
+  }, []);
+
+  const openAddModal = (trigger: HTMLButtonElement) => {
+    lastActionButtonRef.current = trigger;
+    setFormModal({ mode: "add" });
+  };
+
+  const openEditModal = (assignment: Assignment, trigger: HTMLButtonElement) => {
+    lastActionButtonRef.current = trigger;
+    setFormModal({ mode: "edit", assignment });
+  };
+
+  const openDeleteModal = (assignment: Assignment, trigger: HTMLButtonElement) => {
+    lastActionButtonRef.current = trigger;
+    setAssignmentToDelete(assignment);
+  };
+
+  const handleFormSubmit = (values: AssignmentFormValues) => {
+    if (formModal?.mode === "edit") {
+      const editingId = formModal.assignment.id;
+      updateAssignments((current) => current.map((assignment) => (
+        assignment.id === editingId ? { id: editingId, ...values } : assignment
+      )));
+    } else {
+      const newAssignment: Assignment = { id: createAssignmentId(), ...values };
+      updateAssignments((current) => [...current, newAssignment]);
+    }
+    closeFormModal();
+  };
+
+  const handleToggleStatus = (target: Assignment) => {
+    updateAssignments((current) => current.map((assignment) => (
+      assignment.id === target.id
+        ? { ...assignment, status: assignment.status === "完了" ? "未着手" : "完了" }
+        : assignment
+    )));
+  };
+
+  const handleConfirmDelete = () => {
+    if (!assignmentToDelete) return;
+    const deletingId = assignmentToDelete.id;
+    updateAssignments((current) => current.filter((assignment) => assignment.id !== deletingId));
+    setAssignmentToDelete(null);
+    window.setTimeout(() => addButtonRef.current?.focus(), 0);
   };
 
   const sortedAssignments = useMemo(() => sortByDueDate(assignments), [assignments]);
@@ -101,7 +163,7 @@ export function Dashboard() {
           <button
             ref={addButtonRef}
             type="button"
-            onClick={() => setIsModalOpen(true)}
+            onClick={(event) => openAddModal(event.currentTarget)}
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white shadow-sm shadow-indigo-200 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 sm:px-5"
           >
             <span aria-hidden="true" className="text-lg leading-none">＋</span>
@@ -120,7 +182,7 @@ export function Dashboard() {
               <p className="mt-2 text-sm leading-6 text-slate-500 sm:text-base">優先度の高い課題から、少しずつ進めましょう。</p>
             </div>
             <p className="text-sm font-semibold text-slate-500">
-              全体の進捗 <span className="ml-1 text-indigo-600">{completedCount} / {assignments.length}</span>
+              今日の進捗 <span className="ml-1 text-indigo-600">{completedCount} / {assignments.length}</span>
             </p>
           </div>
         </section>
@@ -151,7 +213,15 @@ export function Dashboard() {
             </div>
             {focusAssignments.length > 0 ? (
               <div className="space-y-3">
-                {focusAssignments.map((assignment) => <AssignmentCard key={assignment.id} assignment={assignment} />)}
+                {focusAssignments.map((assignment) => (
+                  <AssignmentCard
+                    key={assignment.id}
+                    assignment={assignment}
+                    onToggleStatus={handleToggleStatus}
+                    onEdit={openEditModal}
+                    onDelete={openDeleteModal}
+                  />
+                ))}
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-medium text-slate-500">未完了の課題はありません。</div>
@@ -176,11 +246,31 @@ export function Dashboard() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-xs font-semibold text-indigo-600">{assignment.subject}</p>
-                          <h3 className="mt-1 text-sm font-bold leading-5 text-slate-900">{assignment.title}</h3>
+                          <h3 className={`mt-1 text-sm font-bold leading-5 ${assignment.status === "完了" ? "text-slate-400 line-through decoration-2" : "text-slate-900"}`}>
+                            {assignment.title}
+                          </h3>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             <time dateTime={assignment.dueDate} className="text-xs font-medium text-slate-500">締切：{formatJapaneseDate(assignment.dueDate)}</time>
                             <PriorityBadge priority={assignment.priority} />
                             <StatusBadge status={assignment.status} />
+                          </div>
+                          <div className="mt-2 flex gap-1">
+                            <button
+                              type="button"
+                              onClick={(event) => openEditModal(assignment, event.currentTarget)}
+                              aria-label={`${assignment.title}を編集`}
+                              className="min-h-11 rounded-lg px-3 text-xs font-bold text-indigo-600 transition hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                            >
+                              編集
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => openDeleteModal(assignment, event.currentTarget)}
+                              aria-label={`${assignment.title}を削除`}
+                              className="min-h-11 rounded-lg px-3 text-xs font-bold text-rose-600 transition hover:bg-rose-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
+                            >
+                              削除
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -193,7 +283,27 @@ export function Dashboard() {
         </div>
       </div>
 
-      <AddAssignmentModal isOpen={isModalOpen} onClose={closeModal} onAdd={handleAddAssignment} />
+      {formModal && (
+        <AssignmentFormModal
+          mode={formModal.mode}
+          initialValues={formModal.mode === "edit" ? {
+            title: formModal.assignment.title,
+            subject: formModal.assignment.subject,
+            dueDate: formModal.assignment.dueDate,
+            priority: formModal.assignment.priority,
+            status: formModal.assignment.status,
+          } : undefined}
+          onClose={closeFormModal}
+          onSubmit={handleFormSubmit}
+        />
+      )}
+      {assignmentToDelete && (
+        <DeleteConfirmationModal
+          assignmentTitle={assignmentToDelete.title}
+          onCancel={closeDeleteModal}
+          onConfirm={handleConfirmDelete}
+        />
+      )}
     </main>
   );
 }

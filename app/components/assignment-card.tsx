@@ -29,17 +29,36 @@ export function StatusBadge({ status }: { status: AssignmentStatus }) {
   return <Badge className={statusStyles[status]}>{status}</Badge>;
 }
 
-export function AssignmentCard({ assignment }: { assignment: Assignment }) {
+type AssignmentCardProps = {
+  assignment: Assignment;
+  onToggleStatus: (assignment: Assignment) => void;
+  onEdit: (assignment: Assignment, trigger: HTMLButtonElement) => void;
+  onDelete: (assignment: Assignment, trigger: HTMLButtonElement) => void;
+};
+
+export function AssignmentCard({ assignment, onToggleStatus, onEdit, onDelete }: AssignmentCardProps) {
+  const isCompleted = assignment.status === "完了";
+
   return (
-    <article className="group rounded-2xl border border-slate-200 bg-white p-5 transition hover:border-indigo-200 hover:shadow-[0_12px_35px_rgba(15,23,42,0.06)] sm:p-6">
+    <article className={`group rounded-2xl border bg-white p-5 transition hover:shadow-[0_12px_35px_rgba(15,23,42,0.06)] sm:p-6 ${isCompleted ? "border-emerald-100 bg-emerald-50/20" : "border-slate-200 hover:border-indigo-200"}`}>
       <div className="flex items-start gap-4">
-        <span
-          aria-hidden="true"
-          className={`mt-1 size-5 shrink-0 rounded-full border-2 ${assignment.status === "完了" ? "border-emerald-500 bg-emerald-500 shadow-[inset_0_0_0_4px_white]" : "border-slate-300"}`}
-        />
+        <button
+          type="button"
+          onClick={() => onToggleStatus(assignment)}
+          aria-label={`${assignment.title}を${isCompleted ? "未着手に戻す" : "完了にする"}`}
+          aria-pressed={isCompleted}
+          className="-m-3 mt-[-8px] grid size-11 shrink-0 place-items-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+        >
+          <span
+            aria-hidden="true"
+            className={`size-5 rounded-full border-2 transition ${isCompleted ? "border-emerald-500 bg-emerald-500 shadow-[inset_0_0_0_4px_white]" : "border-slate-300 hover:border-indigo-500"}`}
+          />
+        </button>
         <div className="min-w-0 flex-1">
           <p className="mb-1 text-xs font-semibold tracking-wide text-indigo-600">{assignment.subject}</p>
-          <h3 className="text-base font-bold leading-snug text-slate-900 sm:text-lg">{assignment.title}</h3>
+          <h3 className={`text-base font-bold leading-snug sm:text-lg ${isCompleted ? "text-slate-400 line-through decoration-2" : "text-slate-900"}`}>
+            {assignment.title}
+          </h3>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <PriorityBadge priority={assignment.priority} />
             <StatusBadge status={assignment.status} />
@@ -57,6 +76,24 @@ export function AssignmentCard({ assignment }: { assignment: Assignment }) {
         <time dateTime={assignment.dueDate} className="text-sm font-bold text-slate-700">
           {formatJapaneseDate(assignment.dueDate)}
         </time>
+      </div>
+      <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3">
+        <button
+          type="button"
+          onClick={(event) => onEdit(assignment, event.currentTarget)}
+          aria-label={`${assignment.title}を編集`}
+          className="min-h-11 rounded-xl px-4 text-sm font-bold text-indigo-600 transition hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+        >
+          編集
+        </button>
+        <button
+          type="button"
+          onClick={(event) => onDelete(assignment, event.currentTarget)}
+          aria-label={`${assignment.title}を削除`}
+          className="min-h-11 rounded-xl px-4 text-sm font-bold text-rose-600 transition hover:bg-rose-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
+        >
+          削除
+        </button>
       </div>
     </article>
   );
