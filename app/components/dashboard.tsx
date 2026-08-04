@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { initialAssignments } from "../data/assignments";
 import {
   assignmentStorageKey,
@@ -37,10 +39,18 @@ function loadStoredAssignments(): Assignment[] | null {
   }
 }
 
-export function Dashboard() {
+type DashboardProps = {
+  userEmail: string;
+};
+
+export function Dashboard({ userEmail }: DashboardProps) {
+  const router = useRouter();
+  const [supabase] = useState(createClient);
   const [assignments, setAssignments] = useState<Assignment[]>(initialAssignments);
   const [formModal, setFormModal] = useState<FormModalState | null>(null);
   const [assignmentToDelete, setAssignmentToDelete] = useState<Assignment | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const lastActionButtonRef = useRef<HTMLButtonElement | null>(null);
   const today = useMemo(() => new Date(), []);
@@ -135,6 +145,26 @@ export function Dashboard() {
     window.setTimeout(() => addButtonRef.current?.focus(), 0);
   };
 
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    setLogoutError(null);
+
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        setLogoutError("ログアウトできませんでした。もう一度お試しください。");
+        return;
+      }
+
+      router.replace("/login");
+      router.refresh();
+    } catch {
+      setLogoutError("ログアウトできませんでした。もう一度お試しください。");
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
+
   const sortedAssignments = useMemo(() => sortByDueDate(assignments), [assignments]);
   const focusAssignments = sortedAssignments;
   const unfinishedCount = assignments.filter((assignment) => assignment.status !== "完了").length;
@@ -152,13 +182,28 @@ export function Dashboard() {
   return (
     <main className="min-h-screen bg-[#f7f8fc] text-slate-900">
       <header className="border-b border-slate-200/80 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-3 px-4 py-4 sm:flex-nowrap sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <div className="grid size-10 place-items-center rounded-xl bg-indigo-600 text-sm font-black text-white shadow-sm shadow-indigo-200">CF</div>
             <div>
               <p className="text-lg font-extrabold tracking-tight text-slate-950">CampusFlow AI</p>
               <p className="text-xs font-medium text-slate-400">学びを、もっとスムーズに。</p>
             </div>
+          </div>
+          <div className="order-3 mt-3 flex min-w-0 w-full items-center justify-between gap-2 border-t border-slate-100 pt-3 sm:order-none sm:mt-0 sm:ml-auto sm:w-auto sm:justify-end sm:border-0 sm:pt-0">
+            <div className="min-w-0 text-right sm:max-w-52">
+              <p className="hidden text-[10px] font-bold tracking-wide text-slate-400 sm:block">ログイン中</p>
+              <p className="truncate text-xs font-semibold text-slate-600" title={userEmail}>{userEmail}</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              aria-label={`${userEmail}からログアウト`}
+              className="min-h-11 shrink-0 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-600 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4"
+            >
+              {isLoggingOut ? "処理中…" : "ログアウト"}
+            </button>
           </div>
           <button
             ref={addButtonRef}
@@ -170,6 +215,11 @@ export function Dashboard() {
             <span className="hidden sm:inline">課題を追加</span>
             <span className="sm:hidden">追加</span>
           </button>
+          {logoutError && (
+            <p role="alert" className="order-4 mt-2 w-full text-right text-xs font-medium text-rose-600">
+              {logoutError}
+            </p>
+          )}
         </div>
       </header>
 
