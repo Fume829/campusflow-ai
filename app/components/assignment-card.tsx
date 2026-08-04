@@ -34,9 +34,18 @@ type AssignmentCardProps = {
   onToggleStatus: (assignment: Assignment) => void;
   onEdit: (assignment: Assignment, trigger: HTMLButtonElement) => void;
   onDelete: (assignment: Assignment, trigger: HTMLButtonElement) => void;
+  isStatusUpdating: boolean;
+  actionsDisabled: boolean;
 };
 
-export function AssignmentCard({ assignment, onToggleStatus, onEdit, onDelete }: AssignmentCardProps) {
+export function AssignmentCard({
+  assignment,
+  onToggleStatus,
+  onEdit,
+  onDelete,
+  isStatusUpdating,
+  actionsDisabled,
+}: AssignmentCardProps) {
   const isCompleted = assignment.status === "完了";
 
   return (
@@ -45,9 +54,10 @@ export function AssignmentCard({ assignment, onToggleStatus, onEdit, onDelete }:
         <button
           type="button"
           onClick={() => onToggleStatus(assignment)}
+          disabled={isStatusUpdating || actionsDisabled}
           aria-label={`${assignment.title}を${isCompleted ? "未着手に戻す" : "完了にする"}`}
           aria-pressed={isCompleted}
-          className="-m-3 mt-[-8px] grid size-11 shrink-0 place-items-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+          className="-m-3 mt-[-8px] grid size-11 shrink-0 place-items-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-wait disabled:opacity-50"
         >
           <span
             aria-hidden="true"
@@ -81,16 +91,18 @@ export function AssignmentCard({ assignment, onToggleStatus, onEdit, onDelete }:
         <button
           type="button"
           onClick={(event) => onEdit(assignment, event.currentTarget)}
+          disabled={actionsDisabled}
           aria-label={`${assignment.title}を編集`}
-          className="min-h-11 rounded-xl px-4 text-sm font-bold text-indigo-600 transition hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+          className="min-h-11 rounded-xl px-4 text-sm font-bold text-indigo-600 transition hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
           編集
         </button>
         <button
           type="button"
           onClick={(event) => onDelete(assignment, event.currentTarget)}
+          disabled={actionsDisabled}
           aria-label={`${assignment.title}を削除`}
-          className="min-h-11 rounded-xl px-4 text-sm font-bold text-rose-600 transition hover:bg-rose-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
+          className="min-h-11 rounded-xl px-4 text-sm font-bold text-rose-600 transition hover:bg-rose-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
           削除
         </button>

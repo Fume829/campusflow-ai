@@ -1,18 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
-import { priorities, statuses, type AssignmentFormValues } from "../types/assignment";
+import { priorities, statuses, type AssignmentInput } from "../types/assignment";
 
 type AssignmentFormModalProps = {
   mode: "add" | "edit";
-  initialValues?: AssignmentFormValues;
+  initialValues?: AssignmentInput;
+  isSubmitting: boolean;
+  submitError: string | null;
   onClose: () => void;
-  onSubmit: (values: AssignmentFormValues) => void;
+  onSubmit: (values: AssignmentInput) => Promise<void>;
 };
 
 type FormErrors = Partial<Record<"title" | "subject" | "dueDate", string>>;
 
-const emptyFormValues: AssignmentFormValues = {
+const emptyFormValues: AssignmentInput = {
   title: "",
   subject: "",
   dueDate: "",
@@ -26,10 +28,12 @@ const fieldClassName =
 export function AssignmentFormModal({
   mode,
   initialValues = emptyFormValues,
+  isSubmitting,
+  submitError,
   onClose,
   onSubmit,
 }: AssignmentFormModalProps) {
-  const [values, setValues] = useState<AssignmentFormValues>(initialValues);
+  const [values, setValues] = useState<AssignmentInput>(initialValues);
   const [errors, setErrors] = useState<FormErrors>({});
   const titleInputRef = useRef<HTMLInputElement>(null);
   const isEditing = mode === "edit";
@@ -40,7 +44,7 @@ export function AssignmentFormModal({
     titleInputRef.current?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !isSubmitting) onClose();
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -48,11 +52,11 @@ export function AssignmentFormModal({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose]);
+  }, [isSubmitting, onClose]);
 
-  const updateValue = <Key extends keyof AssignmentFormValues>(
+  const updateValue = <Key extends keyof AssignmentInput>(
     key: Key,
-    value: AssignmentFormValues[Key],
+    value: AssignmentInput[Key],
   ) => {
     setValues((current) => ({ ...current, [key]: value }));
     if (key === "title" || key === "subject" || key === "dueDate") {
@@ -60,8 +64,9 @@ export function AssignmentFormModal({
     }
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isSubmitting) return;
     const nextErrors: FormErrors = {};
 
     if (!values.title.trim()) nextErrors.title = "課題名を入力してください。";
@@ -73,7 +78,7 @@ export function AssignmentFormModal({
       return;
     }
 
-    onSubmit({
+    await onSubmit({
       ...values,
       title: values.title.trim(),
       subject: values.subject.trim(),
@@ -81,7 +86,7 @@ export function AssignmentFormModal({
   };
 
   const handleBackdropClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) onClose();
+    if (event.target === event.currentTarget && !isSubmitting) onClose();
   };
 
   return (
@@ -110,14 +115,20 @@ export function AssignmentFormModal({
           <button
             type="button"
             onClick={onClose}
+            disabled={isSubmitting}
             aria-label={`${isEditing ? "編集" : "追加"}モーダルを閉じる`}
-            className="grid size-11 shrink-0 place-items-center rounded-full bg-slate-100 text-xl text-slate-500 transition hover:bg-slate-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+            className="grid size-11 shrink-0 place-items-center rounded-full bg-slate-100 text-xl text-slate-500 transition hover:bg-slate-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             ×
           </button>
         </div>
 
-        <form className="mt-6 space-y-5" onSubmit={handleSubmit} noValidate>
+        <form className="mt-6 space-y-5" onSubmit={handleSubmit} noValidate aria-busy={isSubmitting}>
+          {submitError && (
+            <p role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium leading-6 text-rose-700">
+              {submitError}
+            </p>
+          )}
           <label className="block text-sm font-bold text-slate-700">
             課題名 <span className="text-rose-500">*</span>
             <input
@@ -165,7 +176,7 @@ export function AssignmentFormModal({
               優先度
               <select
                 value={values.priority}
-                onChange={(event) => updateValue("priority", event.target.value as AssignmentFormValues["priority"])}
+                onChange={(event) => updateValue("priority", event.target.value as AssignmentInput["priority"])}
                 className={fieldClassName}
               >
                 {priorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
@@ -175,7 +186,7 @@ export function AssignmentFormModal({
               状態
               <select
                 value={values.status}
-                onChange={(event) => updateValue("status", event.target.value as AssignmentFormValues["status"])}
+                onChange={(event) => updateValue("status", event.target.value as AssignmentInput["status"])}
                 className={fieldClassName}
               >
                 {statuses.map((status) => <option key={status} value={status}>{status}</option>)}
@@ -187,15 +198,17 @@ export function AssignmentFormModal({
             <button
               type="button"
               onClick={onClose}
-              className="min-h-12 rounded-xl border border-slate-200 px-5 text-sm font-bold text-slate-600 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+              disabled={isSubmitting}
+              className="min-h-12 rounded-xl border border-slate-200 px-5 text-sm font-bold text-slate-600 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               キャンセル
             </button>
             <button
               type="submit"
-              className="min-h-12 rounded-xl bg-indigo-600 px-6 text-sm font-bold text-white shadow-sm shadow-indigo-200 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+              disabled={isSubmitting}
+              className="min-h-12 rounded-xl bg-indigo-600 px-6 text-sm font-bold text-white shadow-sm shadow-indigo-200 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isEditing ? "変更を保存" : "追加する"}
+              {isSubmitting ? "保存中…" : isEditing ? "変更を保存" : "追加する"}
             </button>
           </div>
         </form>

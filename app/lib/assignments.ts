@@ -1,10 +1,58 @@
-import { priorities, statuses, type Assignment } from "../types/assignment";
+import type { Database } from "@/lib/supabase/database.types";
+import {
+  priorities,
+  statuses,
+  type Assignment,
+  type AssignmentInput,
+  type AssignmentRow,
+} from "../types/assignment";
 
 export const assignmentStorageKey = "campusflow-ai.assignments.v1";
+export const assignmentSelectColumns =
+  "id,title,subject,due_date,priority,status,created_at,updated_at" as const;
+
+type SelectedAssignmentRow = Omit<AssignmentRow, "user_id">;
+type AssignmentInsert = Database["public"]["Tables"]["assignments"]["Insert"];
+
+export function assignmentRowToAssignment(row: SelectedAssignmentRow): Assignment {
+  return {
+    id: row.id,
+    title: row.title,
+    subject: row.subject,
+    dueDate: row.due_date,
+    priority: row.priority,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function assignmentInputToInsert(input: AssignmentInput): AssignmentInsert {
+  return {
+    title: input.title,
+    subject: input.subject,
+    due_date: input.dueDate,
+    priority: input.priority,
+    status: input.status,
+  };
+}
 
 export function parseLocalDate(dateString: string): Date {
   const [year, month, day] = dateString.split("-").map(Number);
   return new Date(year, month - 1, day);
+}
+
+export function isValidDateString(dateString: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateString);
+  if (!match) return false;
+
+  const [, yearValue, monthValue, dayValue] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+  const date = new Date(year, month - 1, day);
+
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
 }
 
 export function formatJapaneseDate(dateString: string): string {
@@ -25,7 +73,9 @@ export function formatJapaneseToday(date: Date): string {
 }
 
 export function sortByDueDate(assignments: Assignment[]): Assignment[] {
-  return [...assignments].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  return [...assignments].sort((a, b) => (
+    a.dueDate.localeCompare(b.dueDate) || a.createdAt.localeCompare(b.createdAt)
+  ));
 }
 
 export function isDueThisWeek(dateString: string, today: Date): boolean {
@@ -37,17 +87,47 @@ export function isDueThisWeek(dateString: string, today: Date): boolean {
   return dueDate >= start && dueDate <= end;
 }
 
-export function isAssignment(value: unknown): value is Assignment {
+export function isAssignmentInput(value: unknown): value is AssignmentInput {
   if (!value || typeof value !== "object") return false;
 
   const assignment = value as Record<string, unknown>;
   return (
-    typeof assignment.id === "string" &&
-    typeof assignment.subject === "string" &&
     typeof assignment.title === "string" &&
+    assignment.title.trim().length > 0 &&
+    typeof assignment.subject === "string" &&
+    assignment.subject.trim().length > 0 &&
     typeof assignment.dueDate === "string" &&
-    /^\d{4}-\d{2}-\d{2}$/.test(assignment.dueDate) &&
+    isValidDateString(assignment.dueDate) &&
     priorities.includes(assignment.priority as (typeof priorities)[number]) &&
     statuses.includes(assignment.status as (typeof statuses)[number])
   );
+}
+
+export function parseLegacyAssignments(storedValue: string | null): AssignmentInput[] {
+  if (!storedValue) return [];
+
+  try {
+    const parsedValue: unknown = JSON.parse(storedValue);
+    if (!Array.isArray(parsedValue)) return [];
+
+    return parsedValue.filter(isAssignmentInput).map((assignment) => ({
+      title: assignment.title.trim(),
+      subject: assignment.subject.trim(),
+      dueDate: assignment.dueDate,
+      priority: assignment.priority,
+      status: assignment.status,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export function assignmentIdentity(assignment: AssignmentInput): string {
+  return JSON.stringify([
+    assignment.title,
+    assignment.subject,
+    assignment.dueDate,
+    assignment.priority,
+    assignment.status,
+  ]);
 }

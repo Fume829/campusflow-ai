@@ -4,12 +4,16 @@ import { useEffect, useRef, type MouseEvent } from "react";
 
 type DeleteConfirmationModalProps = {
   assignmentTitle: string;
+  isDeleting: boolean;
+  error: string | null;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: () => Promise<void>;
 };
 
 export function DeleteConfirmationModal({
   assignmentTitle,
+  isDeleting,
+  error,
   onCancel,
   onConfirm,
 }: DeleteConfirmationModalProps) {
@@ -21,7 +25,7 @@ export function DeleteConfirmationModal({
     cancelButtonRef.current?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCancel();
+      if (event.key === "Escape" && !isDeleting) onCancel();
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -29,10 +33,10 @@ export function DeleteConfirmationModal({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onCancel]);
+  }, [isDeleting, onCancel]);
 
   const handleBackdropClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) onCancel();
+    if (event.target === event.currentTarget && !isDeleting) onCancel();
   };
 
   return (
@@ -54,22 +58,29 @@ export function DeleteConfirmationModal({
             「<span className="font-bold text-slate-700">{assignmentTitle}</span>」を削除します。この操作は取り消せません。
           </p>
         </div>
+        {error && (
+          <p role="alert" className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium leading-6 text-rose-700">
+            {error}
+          </p>
+        )}
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-center">
           <button
             ref={cancelButtonRef}
             type="button"
             onClick={onCancel}
-            className="min-h-12 rounded-xl border border-slate-200 px-6 text-sm font-bold text-slate-600 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+            disabled={isDeleting}
+            className="min-h-12 rounded-xl border border-slate-200 px-6 text-sm font-bold text-slate-600 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             キャンセル
           </button>
           <button
             type="button"
-            onClick={onConfirm}
+            onClick={() => void onConfirm()}
+            disabled={isDeleting}
             aria-label={`${assignmentTitle}を削除する`}
-            className="min-h-12 rounded-xl bg-rose-600 px-6 text-sm font-bold text-white transition hover:bg-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
+            className="min-h-12 rounded-xl bg-rose-600 px-6 text-sm font-bold text-white transition hover:bg-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            削除する
+            {isDeleting ? "削除中…" : "削除する"}
           </button>
         </div>
       </div>

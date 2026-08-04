@@ -1,16 +1,28 @@
-export const priorities = ["高", "中", "低"] as const;
-export const statuses = ["未着手", "進行中", "完了"] as const;
+import type {
+  AssignmentPriority,
+  AssignmentRow,
+  AssignmentStatusValue,
+} from "@/lib/supabase/database.types";
 
-export type Priority = (typeof priorities)[number];
-export type AssignmentStatus = (typeof statuses)[number];
+export const priorities = ["高", "中", "低"] as const satisfies readonly AssignmentPriority[];
+export const statuses = ["未着手", "進行中", "完了"] as const satisfies readonly AssignmentStatusValue[];
+
+export type Priority = AssignmentPriority;
+export type AssignmentStatus = AssignmentStatusValue;
+export type { AssignmentRow };
 
 export type Assignment = {
   id: string;
-  subject: string;
   title: string;
+  subject: string;
   dueDate: string;
   priority: Priority;
   status: AssignmentStatus;
+  createdAt: string;
+  updatedAt: string;
 };
 
-export type AssignmentFormValues = Omit<Assignment, "id">;
+export type AssignmentInput = Pick<
+  Assignment,
+  "title" | "subject" | "dueDate" | "priority" | "status"
+>;

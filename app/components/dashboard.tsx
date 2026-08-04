@@ -3,17 +3,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { initialAssignments } from "../data/assignments";
 import {
+  assignmentIdentity,
+  assignmentInputToInsert,
+  assignmentRowToAssignment,
+  assignmentSelectColumns,
   assignmentStorageKey,
   formatJapaneseDate,
   formatJapaneseToday,
-  isAssignment,
   isDueThisWeek,
+  parseLegacyAssignments,
   parseLocalDate,
   sortByDueDate,
 } from "../lib/assignments";
-import type { Assignment, AssignmentFormValues } from "../types/assignment";
+import type { Assignment, AssignmentInput } from "../types/assignment";
 import { AssignmentFormModal } from "./assignment-form-modal";
 import { AssignmentCard, PriorityBadge, StatusBadge } from "./assignment-card";
 import { DeleteConfirmationModal } from "./delete-confirmation-modal";
@@ -22,54 +25,55 @@ type FormModalState =
   | { mode: "add" }
   | { mode: "edit"; assignment: Assignment };
 
-function createAssignmentId(): string {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `assignment-${Date.now()}`;
-}
-
-function loadStoredAssignments(): Assignment[] | null {
-  try {
-    const storedValue = window.localStorage.getItem(assignmentStorageKey);
-    if (!storedValue) return null;
-    const parsedValue: unknown = JSON.parse(storedValue);
-    return Array.isArray(parsedValue) && parsedValue.every(isAssignment) ? parsedValue : null;
-  } catch {
-    return null;
-  }
-}
-
 type DashboardProps = {
   userEmail: string;
+  userId: string;
+  initialAssignments: Assignment[];
+  initialLoadError?: string;
 };
 
-export function Dashboard({ userEmail }: DashboardProps) {
+export function Dashboard({
+  userEmail,
+  userId,
+  initialAssignments,
+  initialLoadError,
+}: DashboardProps) {
   const router = useRouter();
   const [supabase] = useState(createClient);
-  const [assignments, setAssignments] = useState<Assignment[]>(initialAssignments);
+  const [assignments, setAssignments] = useState<Assignment[]>(() => sortByDueDate(initialAssignments));
   const [formModal, setFormModal] = useState<FormModalState | null>(null);
   const [assignmentToDelete, setAssignmentToDelete] = useState<Assignment | null>(null);
+  const [legacyAssignments, setLegacyAssignments] = useState<AssignmentInput[]>([]);
+  const [isMigrationDismissed, setIsMigrationDismissed] = useState(false);
+  const [isSavingForm, setIsSavingForm] = useState(false);
+  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isMigrating, setIsMigrating] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(initialLoadError ?? null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [formSubmitError, setFormSubmitError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const lastActionButtonRef = useRef<HTMLButtonElement | null>(null);
+  const migrationOwnerRef = useRef(userId);
   const today = useMemo(() => new Date(), []);
 
   useEffect(() => {
-    const restoreAssignments = (event?: StorageEvent) => {
-      if (event && event.key !== assignmentStorageKey) return;
-      const storedAssignments = loadStoredAssignments();
-      if (storedAssignments) setAssignments(storedAssignments);
-    };
+    migrationOwnerRef.current = userId;
+    const timer = window.setTimeout(() => {
+      const storedAssignments = parseLegacyAssignments(
+        window.localStorage.getItem(assignmentStorageKey),
+      );
+      if (storedAssignments.length > 0) setLegacyAssignments(storedAssignments);
+    }, 0);
 
-    const restoreTimer = window.setTimeout(restoreAssignments, 0);
-    window.addEventListener("storage", restoreAssignments);
+    return () => window.clearTimeout(timer);
+  }, [userId]);
 
-    return () => {
-      window.clearTimeout(restoreTimer);
-      window.removeEventListener("storage", restoreAssignments);
-    };
-  }, []);
+  const isDataOperationRunning =
+    isSavingForm || Boolean(updatingStatusId) || isDeleting || isMigrating;
 
   const restoreActionFocus = useCallback(() => {
     window.setTimeout(() => {
@@ -79,70 +83,233 @@ export function Dashboard({ userEmail }: DashboardProps) {
     }, 0);
   }, []);
 
+  const clearMessages = () => {
+    setDataError(null);
+    setSuccessMessage(null);
+  };
+
   const closeFormModal = useCallback(() => {
+    if (isSavingForm) return;
     setFormModal(null);
+    setFormSubmitError(null);
     restoreActionFocus();
-  }, [restoreActionFocus]);
+  }, [isSavingForm, restoreActionFocus]);
 
   const closeDeleteModal = useCallback(() => {
+    if (isDeleting) return;
     setAssignmentToDelete(null);
+    setDeleteError(null);
     restoreActionFocus();
-  }, [restoreActionFocus]);
+  }, [isDeleting, restoreActionFocus]);
 
-  const updateAssignments = useCallback((update: (current: Assignment[]) => Assignment[]) => {
-    setAssignments((currentAssignments) => {
-      const nextAssignments = sortByDueDate(update(currentAssignments));
-      try {
-        window.localStorage.setItem(assignmentStorageKey, JSON.stringify(nextAssignments));
-      } catch {
-        // 保存できない環境でも、現在のセッションでは変更内容を表示する。
-      }
-      return nextAssignments;
-    });
-  }, []);
+  const fetchAssignments = useCallback(async (): Promise<Assignment[] | null> => {
+    const { data, error } = await supabase
+      .from("assignments")
+      .select(assignmentSelectColumns)
+      .order("due_date", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (error) return null;
+    return (data ?? []).map(assignmentRowToAssignment);
+  }, [supabase]);
 
   const openAddModal = (trigger: HTMLButtonElement) => {
+    if (isDataOperationRunning) return;
     lastActionButtonRef.current = trigger;
+    setFormSubmitError(null);
     setFormModal({ mode: "add" });
   };
 
   const openEditModal = (assignment: Assignment, trigger: HTMLButtonElement) => {
+    if (isDataOperationRunning) return;
     lastActionButtonRef.current = trigger;
+    setFormSubmitError(null);
     setFormModal({ mode: "edit", assignment });
   };
 
   const openDeleteModal = (assignment: Assignment, trigger: HTMLButtonElement) => {
+    if (isDataOperationRunning) return;
     lastActionButtonRef.current = trigger;
+    setDeleteError(null);
     setAssignmentToDelete(assignment);
   };
 
-  const handleFormSubmit = (values: AssignmentFormValues) => {
-    if (formModal?.mode === "edit") {
-      const editingId = formModal.assignment.id;
-      updateAssignments((current) => current.map((assignment) => (
-        assignment.id === editingId ? { id: editingId, ...values } : assignment
-      )));
-    } else {
-      const newAssignment: Assignment = { id: createAssignmentId(), ...values };
-      updateAssignments((current) => [...current, newAssignment]);
+  const handleFormSubmit = async (values: AssignmentInput) => {
+    if (isSavingForm) return;
+    setIsSavingForm(true);
+    clearMessages();
+    setFormSubmitError(null);
+
+    try {
+      if (formModal?.mode === "edit") {
+        const { data, error } = await supabase
+          .from("assignments")
+          .update(assignmentInputToInsert(values))
+          .eq("id", formModal.assignment.id)
+          .select(assignmentSelectColumns)
+          .single();
+
+        if (error || !data) {
+          const message = "課題を更新できませんでした。時間をおいてもう一度お試しください。";
+          setFormSubmitError(message);
+          setDataError(message);
+          return;
+        }
+
+        const updatedAssignment = assignmentRowToAssignment(data);
+        setAssignments((current) => sortByDueDate(current.map((assignment) => (
+          assignment.id === updatedAssignment.id ? updatedAssignment : assignment
+        ))));
+      } else {
+        const { data, error } = await supabase
+          .from("assignments")
+          .insert(assignmentInputToInsert(values))
+          .select(assignmentSelectColumns)
+          .single();
+
+        if (error || !data) {
+          const message = "課題を追加できませんでした。時間をおいてもう一度お試しください。";
+          setFormSubmitError(message);
+          setDataError(message);
+          return;
+        }
+
+        const addedAssignment = assignmentRowToAssignment(data);
+        setAssignments((current) => sortByDueDate([...current, addedAssignment]));
+      }
+
+      setFormModal(null);
+      setFormSubmitError(null);
+      setDataError(null);
+      restoreActionFocus();
+    } catch {
+      const message = "課題を保存できませんでした。通信状況を確認してもう一度お試しください。";
+      setFormSubmitError(message);
+      setDataError(message);
+    } finally {
+      setIsSavingForm(false);
     }
-    closeFormModal();
   };
 
-  const handleToggleStatus = (target: Assignment) => {
-    updateAssignments((current) => current.map((assignment) => (
-      assignment.id === target.id
-        ? { ...assignment, status: assignment.status === "完了" ? "未着手" : "完了" }
-        : assignment
-    )));
+  const handleToggleStatus = async (target: Assignment) => {
+    if (updatingStatusId || isDataOperationRunning) return;
+    const nextStatus = target.status === "完了" ? "未着手" : "完了";
+    setUpdatingStatusId(target.id);
+    clearMessages();
+
+    try {
+      const { data, error } = await supabase
+        .from("assignments")
+        .update({ status: nextStatus })
+        .eq("id", target.id)
+        .select(assignmentSelectColumns)
+        .single();
+
+      if (error || !data) {
+        setDataError("課題の状態を変更できませんでした。もう一度お試しください。");
+        return;
+      }
+
+      const updatedAssignment = assignmentRowToAssignment(data);
+      setAssignments((current) => sortByDueDate(current.map((assignment) => (
+        assignment.id === updatedAssignment.id ? updatedAssignment : assignment
+      ))));
+      setDataError(null);
+    } catch {
+      setDataError("課題の状態を変更できませんでした。通信状況を確認してください。");
+    } finally {
+      setUpdatingStatusId(null);
+    }
   };
 
-  const handleConfirmDelete = () => {
-    if (!assignmentToDelete) return;
-    const deletingId = assignmentToDelete.id;
-    updateAssignments((current) => current.filter((assignment) => assignment.id !== deletingId));
-    setAssignmentToDelete(null);
-    window.setTimeout(() => addButtonRef.current?.focus(), 0);
+  const handleConfirmDelete = async () => {
+    if (!assignmentToDelete || isDeleting) return;
+    setIsDeleting(true);
+    clearMessages();
+    setDeleteError(null);
+
+    try {
+      const { data, error } = await supabase
+        .from("assignments")
+        .delete()
+        .eq("id", assignmentToDelete.id)
+        .select("id")
+        .single();
+
+      if (error || !data) {
+        const message = "課題を削除できませんでした。時間をおいてもう一度お試しください。";
+        setDeleteError(message);
+        setDataError(message);
+        return;
+      }
+
+      setAssignments((current) => current.filter((assignment) => assignment.id !== data.id));
+      setAssignmentToDelete(null);
+      setDeleteError(null);
+      setDataError(null);
+      window.setTimeout(() => addButtonRef.current?.focus(), 0);
+    } catch {
+      const message = "課題を削除できませんでした。通信状況を確認してください。";
+      setDeleteError(message);
+      setDataError(message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleMigration = async () => {
+    if (isMigrating || legacyAssignments.length === 0) return;
+    const migrationUserId = userId;
+    setIsMigrating(true);
+    clearMessages();
+
+    try {
+      const currentAssignments = await fetchAssignments();
+      if (!currentAssignments || migrationOwnerRef.current !== migrationUserId) {
+        setDataError("課題を移行できませんでした。時間をおいてもう一度お試しください。");
+        return;
+      }
+
+      const existingIdentities = new Set(currentAssignments.map(assignmentIdentity));
+      const assignmentsToMigrate = legacyAssignments.filter((assignment) => {
+        const identity = assignmentIdentity(assignment);
+        if (existingIdentities.has(identity)) return false;
+        existingIdentities.add(identity);
+        return true;
+      });
+
+      if (assignmentsToMigrate.length > 0) {
+        const { error } = await supabase
+          .from("assignments")
+          .insert(assignmentsToMigrate.map(assignmentInputToInsert));
+
+        if (error) {
+          setDataError("課題を移行できませんでした。ブラウザ内の課題は保持されています。");
+          return;
+        }
+      }
+
+      const refreshedAssignments = await fetchAssignments();
+      if (!refreshedAssignments || migrationOwnerRef.current !== migrationUserId) {
+        setDataError("課題の移行結果を確認できませんでした。ブラウザ内の課題は保持されています。");
+        return;
+      }
+
+      window.localStorage.removeItem(assignmentStorageKey);
+      if (window.localStorage.getItem(assignmentStorageKey) !== null) {
+        setDataError("課題は移行されましたが、ブラウザ内の旧データを削除できませんでした。");
+        return;
+      }
+
+      setAssignments(sortByDueDate(refreshedAssignments));
+      setLegacyAssignments([]);
+      setDataError(null);
+      setSuccessMessage("課題を移行しました");
+    } catch {
+      setDataError("課題を移行できませんでした。ブラウザ内の課題は保持されています。");
+    } finally {
+      setIsMigrating(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -166,7 +333,6 @@ export function Dashboard({ userEmail }: DashboardProps) {
   };
 
   const sortedAssignments = useMemo(() => sortByDueDate(assignments), [assignments]);
-  const focusAssignments = sortedAssignments;
   const unfinishedCount = assignments.filter((assignment) => assignment.status !== "完了").length;
   const dueThisWeekCount = assignments.filter(
     (assignment) => assignment.status !== "完了" && isDueThisWeek(assignment.dueDate, today),
@@ -198,7 +364,7 @@ export function Dashboard({ userEmail }: DashboardProps) {
             <button
               type="button"
               onClick={handleLogout}
-              disabled={isLoggingOut}
+              disabled={isLoggingOut || isDataOperationRunning}
               aria-label={`${userEmail}からログアウト`}
               className="min-h-11 shrink-0 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-600 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4"
             >
@@ -209,17 +375,14 @@ export function Dashboard({ userEmail }: DashboardProps) {
             ref={addButtonRef}
             type="button"
             onClick={(event) => openAddModal(event.currentTarget)}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white shadow-sm shadow-indigo-200 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 sm:px-5"
+            disabled={isDataOperationRunning || isLoggingOut}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white shadow-sm shadow-indigo-200 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-60 sm:px-5"
           >
             <span aria-hidden="true" className="text-lg leading-none">＋</span>
             <span className="hidden sm:inline">課題を追加</span>
             <span className="sm:hidden">追加</span>
           </button>
-          {logoutError && (
-            <p role="alert" className="order-4 mt-2 w-full text-right text-xs font-medium text-rose-600">
-              {logoutError}
-            </p>
-          )}
+          {logoutError && <p role="alert" className="order-4 mt-2 w-full text-right text-xs font-medium text-rose-600">{logoutError}</p>}
         </div>
       </header>
 
@@ -236,6 +399,40 @@ export function Dashboard({ userEmail }: DashboardProps) {
             </p>
           </div>
         </section>
+
+        <div aria-live="polite" className="mt-5 space-y-3">
+          {dataError && <p role="alert" className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{dataError}</p>}
+          {successMessage && <p role="status" className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{successMessage}</p>}
+        </div>
+
+        {legacyAssignments.length > 0 && !isMigrationDismissed && (
+          <section className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-5 sm:flex sm:items-center sm:justify-between sm:gap-6" aria-labelledby="migration-heading">
+            <div>
+              <h2 id="migration-heading" className="text-sm font-extrabold text-indigo-950">以前の課題データがあります</h2>
+              <p className="mt-1 text-sm leading-6 text-indigo-800">
+                以前このブラウザに保存した課題が見つかりました。Supabaseへ移行すると、ログインした別の端末からも確認できます。
+              </p>
+            </div>
+            <div className="mt-4 flex shrink-0 flex-col-reverse gap-2 sm:mt-0 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => setIsMigrationDismissed(true)}
+                disabled={isMigrating}
+                className="min-h-11 rounded-xl px-4 text-sm font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                後で
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleMigration()}
+                disabled={isDataOperationRunning}
+                className="min-h-11 rounded-xl bg-indigo-600 px-5 text-sm font-bold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isMigrating ? "移行中…" : "課題を移行する"}
+              </button>
+            </div>
+          </section>
+        )}
 
         <section aria-label="課題の集計" className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
           {summary.map((item) => (
@@ -259,22 +456,27 @@ export function Dashboard({ userEmail }: DashboardProps) {
                 <h2 id="focus-heading" className="text-xl font-extrabold tracking-tight text-slate-900">今日取り組む課題</h2>
                 <p className="mt-1 text-sm text-slate-500">期限切れ・完了済みを含め、締切が近い順に表示</p>
               </div>
-              <span className="shrink-0 rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">{focusAssignments.length}件</span>
+              <span className="shrink-0 rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">{sortedAssignments.length}件</span>
             </div>
-            {focusAssignments.length > 0 ? (
+            {sortedAssignments.length > 0 ? (
               <div className="space-y-3">
-                {focusAssignments.map((assignment) => (
+                {sortedAssignments.map((assignment) => (
                   <AssignmentCard
                     key={assignment.id}
                     assignment={assignment}
-                    onToggleStatus={handleToggleStatus}
+                    onToggleStatus={(target) => void handleToggleStatus(target)}
                     onEdit={openEditModal}
                     onDelete={openDeleteModal}
+                    isStatusUpdating={updatingStatusId === assignment.id}
+                    actionsDisabled={isDataOperationRunning}
                   />
                 ))}
               </div>
             ) : (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-medium text-slate-500">未完了の課題はありません。</div>
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center sm:p-10">
+                <p className="font-bold text-slate-700">課題はまだ登録されていません</p>
+                <p className="mt-2 text-sm leading-6 text-slate-500">右上の「課題を追加」から最初の課題を登録しましょう</p>
+              </div>
             )}
           </section>
 
@@ -284,50 +486,50 @@ export function Dashboard({ userEmail }: DashboardProps) {
               <p className="mt-1 text-sm text-slate-500">すべての課題を期限が近い順に表示</p>
             </div>
             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_6px_24px_rgba(15,23,42,0.035)]">
-              <ol className="divide-y divide-slate-100">
-                {sortedAssignments.map((assignment) => {
-                  const dueDate = parseLocalDate(assignment.dueDate);
-                  return (
-                    <li key={assignment.id} className="p-5">
-                      <div className="flex gap-4">
-                        <div className="flex w-11 shrink-0 flex-col items-center rounded-xl bg-slate-50 py-2 text-center">
-                          <span className="text-[10px] font-bold tracking-wide text-slate-400">{dueDate.getMonth() + 1}月</span>
-                          <span className="text-lg font-extrabold leading-5 text-slate-800">{dueDate.getDate()}</span>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-semibold text-indigo-600">{assignment.subject}</p>
-                          <h3 className={`mt-1 text-sm font-bold leading-5 ${assignment.status === "完了" ? "text-slate-400 line-through decoration-2" : "text-slate-900"}`}>
-                            {assignment.title}
-                          </h3>
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <time dateTime={assignment.dueDate} className="text-xs font-medium text-slate-500">締切：{formatJapaneseDate(assignment.dueDate)}</time>
-                            <PriorityBadge priority={assignment.priority} />
-                            <StatusBadge status={assignment.status} />
+              {sortedAssignments.length > 0 ? (
+                <ol className="divide-y divide-slate-100">
+                  {sortedAssignments.map((assignment) => {
+                    const dueDate = parseLocalDate(assignment.dueDate);
+                    return (
+                      <li key={assignment.id} className="p-5">
+                        <div className="flex gap-4">
+                          <div className="flex w-11 shrink-0 flex-col items-center rounded-xl bg-slate-50 py-2 text-center">
+                            <span className="text-[10px] font-bold tracking-wide text-slate-400">{dueDate.getMonth() + 1}月</span>
+                            <span className="text-lg font-extrabold leading-5 text-slate-800">{dueDate.getDate()}</span>
                           </div>
-                          <div className="mt-2 flex gap-1">
-                            <button
-                              type="button"
-                              onClick={(event) => openEditModal(assignment, event.currentTarget)}
-                              aria-label={`${assignment.title}を編集`}
-                              className="min-h-11 rounded-lg px-3 text-xs font-bold text-indigo-600 transition hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                            >
-                              編集
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(event) => openDeleteModal(assignment, event.currentTarget)}
-                              aria-label={`${assignment.title}を削除`}
-                              className="min-h-11 rounded-lg px-3 text-xs font-bold text-rose-600 transition hover:bg-rose-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
-                            >
-                              削除
-                            </button>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-semibold text-indigo-600">{assignment.subject}</p>
+                            <h3 className={`mt-1 text-sm font-bold leading-5 ${assignment.status === "完了" ? "text-slate-400 line-through decoration-2" : "text-slate-900"}`}>{assignment.title}</h3>
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <time dateTime={assignment.dueDate} className="text-xs font-medium text-slate-500">締切：{formatJapaneseDate(assignment.dueDate)}</time>
+                              <PriorityBadge priority={assignment.priority} />
+                              <StatusBadge status={assignment.status} />
+                            </div>
+                            <div className="mt-2 flex gap-1">
+                              <button
+                                type="button"
+                                onClick={(event) => openEditModal(assignment, event.currentTarget)}
+                                disabled={isDataOperationRunning}
+                                aria-label={`${assignment.title}を編集`}
+                                className="min-h-11 rounded-lg px-3 text-xs font-bold text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              >編集</button>
+                              <button
+                                type="button"
+                                onClick={(event) => openDeleteModal(assignment, event.currentTarget)}
+                                disabled={isDataOperationRunning}
+                                aria-label={`${assignment.title}を削除`}
+                                className="min-h-11 rounded-lg px-3 text-xs font-bold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              >削除</button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : (
+                <p className="p-6 text-center text-sm text-slate-400">登録された締切はありません。</p>
+              )}
             </div>
           </section>
         </div>
@@ -343,6 +545,8 @@ export function Dashboard({ userEmail }: DashboardProps) {
             priority: formModal.assignment.priority,
             status: formModal.assignment.status,
           } : undefined}
+          isSubmitting={isSavingForm}
+          submitError={formSubmitError}
           onClose={closeFormModal}
           onSubmit={handleFormSubmit}
         />
@@ -350,6 +554,8 @@ export function Dashboard({ userEmail }: DashboardProps) {
       {assignmentToDelete && (
         <DeleteConfirmationModal
           assignmentTitle={assignmentToDelete.title}
+          isDeleting={isDeleting}
+          error={deleteError}
           onCancel={closeDeleteModal}
           onConfirm={handleConfirmDelete}
         />
