@@ -111,6 +111,11 @@ export function AssignmentFormModal({
             <p className="mt-1 text-sm text-slate-500">
               {isEditing ? "課題の内容を変更できます。" : "課題の内容と締切を入力してください。"}
             </p>
+            {isEditing && (
+              <p className="mt-2 text-xs leading-5 text-amber-700">
+                課題内容を変更した場合は、必要に応じてAI計画を再生成してください。
+              </p>
+            )}
           </div>
           <button
             type="button"

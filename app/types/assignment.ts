@@ -11,6 +11,19 @@ export type Priority = AssignmentPriority;
 export type AssignmentStatus = AssignmentStatusValue;
 export type { AssignmentRow };
 
+export type AiPlanStep = {
+  title: string;
+  description: string;
+  estimatedMinutes: number;
+};
+
+export type AiPlan = {
+  summary: string;
+  totalEstimatedMinutes: number;
+  steps: AiPlanStep[];
+  tips: string[];
+};
+
 export type Assignment = {
   id: string;
   title: string;
@@ -20,6 +33,8 @@ export type Assignment = {
   status: AssignmentStatus;
   createdAt: string;
   updatedAt: string;
+  aiPlan: AiPlan | null;
+  aiPlanGeneratedAt: string | null;
 };
 
 export type AssignmentInput = Pick<

@@ -11,6 +11,7 @@ import {
   assignmentStorageKey,
   formatJapaneseDate,
   formatJapaneseToday,
+  isAiPlan,
   isDueThisWeek,
   parseLegacyAssignments,
   parseLocalDate,
@@ -20,6 +21,7 @@ import type { Assignment, AssignmentInput } from "../types/assignment";
 import { AssignmentFormModal } from "./assignment-form-modal";
 import { AssignmentCard, PriorityBadge, StatusBadge } from "./assignment-card";
 import { DeleteConfirmationModal } from "./delete-confirmation-modal";
+import { AiPlanModal } from "./ai-plan-modal";
 
 type FormModalState =
   | { mode: "add" }
@@ -50,6 +52,9 @@ export function Dashboard({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [generatingAiPlanId, setGeneratingAiPlanId] = useState<string | null>(null);
+  const [aiPlanModalAssignmentId, setAiPlanModalAssignmentId] = useState<string | null>(null);
+  const [aiPlanError, setAiPlanError] = useState<{ assignmentId: string; message: string } | null>(null);
   const [dataError, setDataError] = useState<string | null>(initialLoadError ?? null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [formSubmitError, setFormSubmitError] = useState<string | null>(null);
@@ -73,7 +78,7 @@ export function Dashboard({
   }, [userId]);
 
   const isDataOperationRunning =
-    isSavingForm || Boolean(updatingStatusId) || isDeleting || isMigrating;
+    isSavingForm || Boolean(updatingStatusId) || isDeleting || isMigrating || Boolean(generatingAiPlanId);
 
   const restoreActionFocus = useCallback(() => {
     window.setTimeout(() => {
@@ -101,6 +106,12 @@ export function Dashboard({
     setDeleteError(null);
     restoreActionFocus();
   }, [isDeleting, restoreActionFocus]);
+
+  const closeAiPlanModal = useCallback(() => {
+    setAiPlanModalAssignmentId(null);
+    setAiPlanError(null);
+    restoreActionFocus();
+  }, [restoreActionFocus]);
 
   const fetchAssignments = useCallback(async (): Promise<Assignment[] | null> => {
     const { data, error } = await supabase
@@ -257,6 +268,62 @@ export function Dashboard({
     }
   };
 
+  const handleGenerateAiPlan = async (assignment: Assignment) => {
+    if (generatingAiPlanId) return;
+    setGeneratingAiPlanId(assignment.id);
+    setAiPlanError(null);
+
+    try {
+      const response = await fetch(`/api/assignments/${encodeURIComponent(assignment.id)}/ai-plan`, {
+        method: "POST",
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message = payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
+          ? payload.error
+          : "AI計画を作成できませんでした。時間をおいてもう一度お試しください。";
+        setAiPlanError({ assignmentId: assignment.id, message });
+        return;
+      }
+
+      if (
+        !payload || typeof payload !== "object" ||
+        !("aiPlan" in payload) || !isAiPlan(payload.aiPlan) ||
+        !("aiPlanGeneratedAt" in payload) || typeof payload.aiPlanGeneratedAt !== "string"
+      ) {
+        setAiPlanError({ assignmentId: assignment.id, message: "AI計画を正しく受け取れませんでした。もう一度お試しください。" });
+        return;
+      }
+
+      const updatedAssignment = {
+        ...assignment,
+        aiPlan: payload.aiPlan,
+        aiPlanGeneratedAt: payload.aiPlanGeneratedAt,
+      };
+      setAssignments((current) => current.map((item) => (
+        item.id === assignment.id ? updatedAssignment : item
+      )));
+      setAiPlanModalAssignmentId(assignment.id);
+      setAiPlanError(null);
+    } catch {
+      setAiPlanError({ assignmentId: assignment.id, message: "AI計画を作成できませんでした。通信状況を確認してください。" });
+    } finally {
+      setGeneratingAiPlanId(null);
+    }
+  };
+
+  const startAiPlanGeneration = (assignment: Assignment, trigger: HTMLButtonElement) => {
+    if (isDataOperationRunning) return;
+    lastActionButtonRef.current = trigger;
+    void handleGenerateAiPlan(assignment);
+  };
+
+  const openAiPlanModal = (assignment: Assignment, trigger: HTMLButtonElement) => {
+    lastActionButtonRef.current = trigger;
+    setAiPlanError(null);
+    setAiPlanModalAssignmentId(assignment.id);
+  };
+
   const handleMigration = async () => {
     if (isMigrating || legacyAssignments.length === 0) return;
     const migrationUserId = userId;
@@ -333,6 +400,7 @@ export function Dashboard({
   };
 
   const sortedAssignments = useMemo(() => sortByDueDate(assignments), [assignments]);
+  const aiPlanModalAssignment = assignments.find((assignment) => assignment.id === aiPlanModalAssignmentId) ?? null;
   const unfinishedCount = assignments.filter((assignment) => assignment.status !== "完了").length;
   const dueThisWeekCount = assignments.filter(
     (assignment) => assignment.status !== "完了" && isDueThisWeek(assignment.dueDate, today),
@@ -467,7 +535,11 @@ export function Dashboard({
                     onToggleStatus={(target) => void handleToggleStatus(target)}
                     onEdit={openEditModal}
                     onDelete={openDeleteModal}
+                    onGenerateAiPlan={startAiPlanGeneration}
+                    onViewAiPlan={openAiPlanModal}
                     isStatusUpdating={updatingStatusId === assignment.id}
+                    isAiGenerating={generatingAiPlanId === assignment.id}
+                    aiPlanError={aiPlanError?.assignmentId === assignment.id ? aiPlanError.message : null}
                     actionsDisabled={isDataOperationRunning}
                   />
                 ))}
@@ -558,6 +630,15 @@ export function Dashboard({
           error={deleteError}
           onCancel={closeDeleteModal}
           onConfirm={handleConfirmDelete}
+        />
+      )}
+      {aiPlanModalAssignment?.aiPlan && (
+        <AiPlanModal
+          assignment={aiPlanModalAssignment}
+          isRegenerating={generatingAiPlanId === aiPlanModalAssignment.id}
+          error={aiPlanError?.assignmentId === aiPlanModalAssignment.id ? aiPlanError.message : null}
+          onClose={closeAiPlanModal}
+          onRegenerate={() => void handleGenerateAiPlan(aiPlanModalAssignment)}
         />
       )}
     </main>

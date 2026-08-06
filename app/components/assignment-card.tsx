@@ -34,7 +34,11 @@ type AssignmentCardProps = {
   onToggleStatus: (assignment: Assignment) => void;
   onEdit: (assignment: Assignment, trigger: HTMLButtonElement) => void;
   onDelete: (assignment: Assignment, trigger: HTMLButtonElement) => void;
+  onGenerateAiPlan: (assignment: Assignment, trigger: HTMLButtonElement) => void;
+  onViewAiPlan: (assignment: Assignment, trigger: HTMLButtonElement) => void;
   isStatusUpdating: boolean;
+  isAiGenerating: boolean;
+  aiPlanError: string | null;
   actionsDisabled: boolean;
 };
 
@@ -43,7 +47,11 @@ export function AssignmentCard({
   onToggleStatus,
   onEdit,
   onDelete,
+  onGenerateAiPlan,
+  onViewAiPlan,
   isStatusUpdating,
+  isAiGenerating,
+  aiPlanError,
   actionsDisabled,
 }: AssignmentCardProps) {
   const isCompleted = assignment.status === "完了";
@@ -87,7 +95,18 @@ export function AssignmentCard({
           {formatJapaneseDate(assignment.dueDate)}
         </time>
       </div>
-      <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3">
+      <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-2">
+          {assignment.aiPlan ? (
+            <>
+              <button type="button" onClick={(event) => onViewAiPlan(assignment, event.currentTarget)} aria-label={`${assignment.title}のAI計画を見る`} className="min-h-11 rounded-xl bg-indigo-50 px-4 text-sm font-bold text-indigo-700 transition hover:bg-indigo-100">AI計画を見る</button>
+              <button type="button" onClick={(event) => onGenerateAiPlan(assignment, event.currentTarget)} disabled={isAiGenerating || actionsDisabled} aria-label={`${assignment.title}のAI計画を再生成`} className="min-h-11 rounded-xl px-3 text-sm font-bold text-slate-600 transition hover:bg-slate-100 disabled:cursor-wait disabled:opacity-50">再生成</button>
+            </>
+          ) : (
+            <button type="button" onClick={(event) => onGenerateAiPlan(assignment, event.currentTarget)} disabled={isAiGenerating || actionsDisabled} aria-label={`${assignment.title}をAIで小さな作業に分解`} className="min-h-11 rounded-xl bg-indigo-50 px-4 text-sm font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-50">AIで計画を作る</button>
+          )}
+        </div>
+        <div className="flex justify-end gap-2">
         <button
           type="button"
           onClick={(event) => onEdit(assignment, event.currentTarget)}
@@ -106,7 +125,10 @@ export function AssignmentCard({
         >
           削除
         </button>
+        </div>
       </div>
+      {isAiGenerating && <p aria-live="polite" className="mt-2 text-sm font-semibold text-indigo-700">AIが計画を作成中です…</p>}
+      {aiPlanError && <p role="alert" aria-live="assertive" className="mt-2 rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">{aiPlanError}</p>}
     </article>
   );
 }

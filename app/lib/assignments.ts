@@ -3,18 +3,20 @@ import {
   priorities,
   statuses,
   type Assignment,
+  type AiPlan,
   type AssignmentInput,
   type AssignmentRow,
 } from "../types/assignment";
 
 export const assignmentStorageKey = "campusflow-ai.assignments.v1";
 export const assignmentSelectColumns =
-  "id,title,subject,due_date,priority,status,created_at,updated_at" as const;
+  "id,title,subject,due_date,priority,status,created_at,updated_at,ai_plan,ai_plan_generated_at" as const;
 
 type SelectedAssignmentRow = Omit<AssignmentRow, "user_id">;
 type AssignmentInsert = Database["public"]["Tables"]["assignments"]["Insert"];
 
 export function assignmentRowToAssignment(row: SelectedAssignmentRow): Assignment {
+  const aiPlan = isAiPlan(row.ai_plan) ? row.ai_plan : null;
   return {
     id: row.id,
     title: row.title,
@@ -24,7 +26,41 @@ export function assignmentRowToAssignment(row: SelectedAssignmentRow): Assignmen
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    aiPlan,
+    aiPlanGeneratedAt: aiPlan && typeof row.ai_plan_generated_at === "string"
+      ? row.ai_plan_generated_at
+      : null,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).every((key) => keys.includes(key)) &&
+    keys.every((key) => Object.hasOwn(value, key));
+}
+
+export function isAiPlan(value: unknown): value is AiPlan {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["summary", "totalEstimatedMinutes", "steps", "tips"])) {
+    return false;
+  }
+  if (
+    typeof value.summary !== "string" || value.summary.trim().length === 0 ||
+    !Number.isInteger(value.totalEstimatedMinutes) || Number(value.totalEstimatedMinutes) <= 0 ||
+    !Array.isArray(value.steps) || value.steps.length < 3 || value.steps.length > 7 ||
+    !Array.isArray(value.tips) || !value.tips.every((tip) => typeof tip === "string" && tip.trim().length > 0)
+  ) {
+    return false;
+  }
+
+  return value.steps.every((step) => {
+    if (!isRecord(step) || !hasOnlyKeys(step, ["title", "description", "estimatedMinutes"])) return false;
+    return typeof step.title === "string" && step.title.trim().length > 0 &&
+      typeof step.description === "string" && step.description.trim().length > 0 &&
+      Number.isInteger(step.estimatedMinutes) && Number(step.estimatedMinutes) > 0;
+  });
 }
 
 export function assignmentInputToInsert(input: AssignmentInput): AssignmentInsert {
