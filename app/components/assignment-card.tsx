@@ -1,4 +1,4 @@
-import { formatJapaneseDate } from "../lib/assignments";
+import { formatJapaneseDateTime } from "../lib/assignments";
 import type { Assignment, AssignmentStatus, Priority } from "../types/assignment";
 
 const priorityStyles: Record<Priority, string> = {
@@ -84,15 +84,15 @@ export function AssignmentCard({
         </div>
         <div className="hidden shrink-0 text-right sm:block">
           <p className="text-xs font-medium text-slate-400">締切</p>
-          <time dateTime={assignment.dueDate} className="mt-1 block text-sm font-bold text-slate-700">
-            {formatJapaneseDate(assignment.dueDate)}
+          <time dateTime={assignment.dueAt} className="mt-1 block text-sm font-bold text-slate-700">
+            {formatJapaneseDateTime(assignment.dueAt)}
           </time>
         </div>
       </div>
       <div className="mt-4 border-t border-slate-100 pt-3 text-right sm:hidden">
         <span className="mr-2 text-xs font-medium text-slate-400">締切</span>
-        <time dateTime={assignment.dueDate} className="text-sm font-bold text-slate-700">
-          {formatJapaneseDate(assignment.dueDate)}
+        <time dateTime={assignment.dueAt} className="text-sm font-bold text-slate-700">
+          {formatJapaneseDateTime(assignment.dueAt)}
         </time>
       </div>
       <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">

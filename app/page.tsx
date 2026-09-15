@@ -17,7 +17,7 @@ export default async function Home() {
   const { data: assignmentRows, error: assignmentError } = await supabase
     .from("assignments")
     .select(assignmentSelectColumns)
-    .order("due_date", { ascending: true })
+    .order("due_at", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true });
 
   const initialAssignments = assignmentError

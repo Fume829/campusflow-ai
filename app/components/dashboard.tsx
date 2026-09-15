@@ -9,13 +9,13 @@ import {
   assignmentRowToAssignment,
   assignmentSelectColumns,
   assignmentStorageKey,
-  formatJapaneseDate,
+  formatJapaneseDateTime,
   formatJapaneseToday,
+  getTokyoMonthDay,
   isAiPlan,
   isDueThisWeek,
   parseLegacyAssignments,
-  parseLocalDate,
-  sortByDueDate,
+  sortByDueAt,
 } from "../lib/assignments";
 import type { Assignment, AssignmentInput } from "../types/assignment";
 import { AssignmentFormModal } from "./assignment-form-modal";
@@ -42,7 +42,7 @@ export function Dashboard({
 }: DashboardProps) {
   const router = useRouter();
   const [supabase] = useState(createClient);
-  const [assignments, setAssignments] = useState<Assignment[]>(() => sortByDueDate(initialAssignments));
+  const [assignments, setAssignments] = useState<Assignment[]>(() => sortByDueAt(initialAssignments));
   const [formModal, setFormModal] = useState<FormModalState | null>(null);
   const [assignmentToDelete, setAssignmentToDelete] = useState<Assignment | null>(null);
   const [legacyAssignments, setLegacyAssignments] = useState<AssignmentInput[]>([]);
@@ -117,7 +117,7 @@ export function Dashboard({
     const { data, error } = await supabase
       .from("assignments")
       .select(assignmentSelectColumns)
-      .order("due_date", { ascending: true })
+      .order("due_at", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: true });
 
     if (error) return null;
@@ -168,7 +168,7 @@ export function Dashboard({
         }
 
         const updatedAssignment = assignmentRowToAssignment(data);
-        setAssignments((current) => sortByDueDate(current.map((assignment) => (
+        setAssignments((current) => sortByDueAt(current.map((assignment) => (
           assignment.id === updatedAssignment.id ? updatedAssignment : assignment
         ))));
       } else {
@@ -186,7 +186,7 @@ export function Dashboard({
         }
 
         const addedAssignment = assignmentRowToAssignment(data);
-        setAssignments((current) => sortByDueDate([...current, addedAssignment]));
+        setAssignments((current) => sortByDueAt([...current, addedAssignment]));
       }
 
       setFormModal(null);
@@ -222,7 +222,7 @@ export function Dashboard({
       }
 
       const updatedAssignment = assignmentRowToAssignment(data);
-      setAssignments((current) => sortByDueDate(current.map((assignment) => (
+      setAssignments((current) => sortByDueAt(current.map((assignment) => (
         assignment.id === updatedAssignment.id ? updatedAssignment : assignment
       ))));
       setDataError(null);
@@ -368,7 +368,7 @@ export function Dashboard({
         return;
       }
 
-      setAssignments(sortByDueDate(refreshedAssignments));
+      setAssignments(sortByDueAt(refreshedAssignments));
       setLegacyAssignments([]);
       setDataError(null);
       setSuccessMessage("課題を移行しました");
@@ -399,11 +399,11 @@ export function Dashboard({
     }
   };
 
-  const sortedAssignments = useMemo(() => sortByDueDate(assignments), [assignments]);
+  const sortedAssignments = useMemo(() => sortByDueAt(assignments), [assignments]);
   const aiPlanModalAssignment = assignments.find((assignment) => assignment.id === aiPlanModalAssignmentId) ?? null;
   const unfinishedCount = assignments.filter((assignment) => assignment.status !== "完了").length;
   const dueThisWeekCount = assignments.filter(
-    (assignment) => assignment.status !== "完了" && isDueThisWeek(assignment.dueDate, today),
+    (assignment) => assignment.status !== "完了" && isDueThisWeek(assignment.dueAt, today),
   ).length;
   const completedCount = assignments.filter((assignment) => assignment.status === "完了").length;
 
@@ -561,19 +561,19 @@ export function Dashboard({
               {sortedAssignments.length > 0 ? (
                 <ol className="divide-y divide-slate-100">
                   {sortedAssignments.map((assignment) => {
-                    const dueDate = parseLocalDate(assignment.dueDate);
+                    const dueDate = getTokyoMonthDay(assignment.dueAt);
                     return (
                       <li key={assignment.id} className="p-5">
                         <div className="flex gap-4">
                           <div className="flex w-11 shrink-0 flex-col items-center rounded-xl bg-slate-50 py-2 text-center">
-                            <span className="text-[10px] font-bold tracking-wide text-slate-400">{dueDate.getMonth() + 1}月</span>
-                            <span className="text-lg font-extrabold leading-5 text-slate-800">{dueDate.getDate()}</span>
+                            <span className="text-[10px] font-bold tracking-wide text-slate-400">{dueDate.month}月</span>
+                            <span className="text-lg font-extrabold leading-5 text-slate-800">{dueDate.day}</span>
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-xs font-semibold text-indigo-600">{assignment.subject}</p>
                             <h3 className={`mt-1 text-sm font-bold leading-5 ${assignment.status === "完了" ? "text-slate-400 line-through decoration-2" : "text-slate-900"}`}>{assignment.title}</h3>
                             <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <time dateTime={assignment.dueDate} className="text-xs font-medium text-slate-500">締切：{formatJapaneseDate(assignment.dueDate)}</time>
+                              <time dateTime={assignment.dueAt} className="text-xs font-medium text-slate-500">締切：{formatJapaneseDateTime(assignment.dueAt)}</time>
                               <PriorityBadge priority={assignment.priority} />
                               <StatusBadge status={assignment.status} />
                             </div>
@@ -613,7 +613,7 @@ export function Dashboard({
           initialValues={formModal.mode === "edit" ? {
             title: formModal.assignment.title,
             subject: formModal.assignment.subject,
-            dueDate: formModal.assignment.dueDate,
+            dueAt: formModal.assignment.dueAt,
             priority: formModal.assignment.priority,
             status: formModal.assignment.status,
           } : undefined}

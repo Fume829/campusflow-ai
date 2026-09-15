@@ -8,6 +8,7 @@ export type AssignmentRow = {
   title: string;
   subject: string;
   due_date: string;
+  due_at: string;
   priority: AssignmentPriority;
   status: AssignmentStatusValue;
   created_at: string;
@@ -22,6 +23,7 @@ type AssignmentInsert = {
   title: string;
   subject: string;
   due_date: string;
+  due_at: string;
   priority: AssignmentPriority;
   status: AssignmentStatusValue;
   created_at?: never;
@@ -36,6 +38,7 @@ type AssignmentUpdate = {
   title?: string;
   subject?: string;
   due_date?: string;
+  due_at?: string;
   priority?: AssignmentPriority;
   status?: AssignmentStatusValue;
   created_at?: never;

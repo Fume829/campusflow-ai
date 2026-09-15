@@ -9,19 +9,23 @@ import {
 } from "../types/assignment";
 
 export const assignmentStorageKey = "campusflow-ai.assignments.v1";
+export const assignmentTimeZone = "Asia/Tokyo";
 export const assignmentSelectColumns =
-  "id,title,subject,due_date,priority,status,created_at,updated_at,ai_plan,ai_plan_generated_at" as const;
+  "id,title,subject,due_date,due_at,priority,status,created_at,updated_at,ai_plan,ai_plan_generated_at" as const;
 
 type SelectedAssignmentRow = Omit<AssignmentRow, "user_id">;
 type AssignmentInsert = Database["public"]["Tables"]["assignments"]["Insert"];
 
 export function assignmentRowToAssignment(row: SelectedAssignmentRow): Assignment {
   const aiPlan = isAiPlan(row.ai_plan) ? row.ai_plan : null;
+  const dueAt = resolveAssignmentDueAt(row.due_at, row.due_date);
+  if (!dueAt) throw new Error("課題の締切日時が正しくありません。");
+
   return {
     id: row.id,
     title: row.title,
     subject: row.subject,
-    dueDate: row.due_date,
+    dueAt,
     priority: row.priority,
     status: row.status,
     createdAt: row.created_at,
@@ -64,18 +68,17 @@ export function isAiPlan(value: unknown): value is AiPlan {
 }
 
 export function assignmentInputToInsert(input: AssignmentInput): AssignmentInsert {
+  const dueDate = dueAtToTokyoDate(input.dueAt);
+  if (!dueDate) throw new Error("課題の締切日時が正しくありません。");
+
   return {
     title: input.title,
     subject: input.subject,
-    due_date: input.dueDate,
+    due_date: dueDate,
+    due_at: input.dueAt,
     priority: input.priority,
     status: input.status,
   };
-}
-
-export function parseLocalDate(dateString: string): Date {
-  const [year, month, day] = dateString.split("-").map(Number);
-  return new Date(year, month - 1, day);
 }
 
 export function isValidDateString(dateString: string): boolean {
@@ -86,21 +89,114 @@ export function isValidDateString(dateString: string): boolean {
   const year = Number(yearValue);
   const month = Number(monthValue);
   const day = Number(dayValue);
-  const date = new Date(year, month - 1, day);
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(0, 0, 0, 0);
 
-  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
-export function formatJapaneseDate(dateString: string): string {
+function normalizeIsoDateTime(value: string | null): string | null {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+function getTokyoDateTimeParts(value: string | Date): Record<string, string> | null {
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: assignmentTimeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
+export function tokyoLocalDateTimeToIso(value: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const [, yearValue, monthValue, dayValue, hourValue, minuteValue] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+  const hour = Number(hourValue);
+  const minute = Number(minuteValue);
+  const calendarCheck = new Date(0);
+  calendarCheck.setUTCFullYear(year, month - 1, day);
+  calendarCheck.setUTCHours(hour, minute, 0, 0);
+
+  if (
+    calendarCheck.getUTCFullYear() !== year ||
+    calendarCheck.getUTCMonth() !== month - 1 ||
+    calendarCheck.getUTCDate() !== day ||
+    calendarCheck.getUTCHours() !== hour ||
+    calendarCheck.getUTCMinutes() !== minute
+  ) {
+    return null;
+  }
+
+  const dueAt = normalizeIsoDateTime(`${value}:00+09:00`);
+  return dueAt && dueAtToTokyoInputValue(dueAt) === value ? dueAt : null;
+}
+
+export function dueAtToTokyoInputValue(dueAt: string): string {
+  const parts = getTokyoDateTimeParts(dueAt);
+  if (!parts?.year || !parts.month || !parts.day || !parts.hour || !parts.minute) return "";
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+export function dueAtToTokyoDate(dueAt: string): string | null {
+  const inputValue = dueAtToTokyoInputValue(dueAt);
+  return inputValue ? inputValue.slice(0, 10) : null;
+}
+
+export function formatDueAtJapan(dueAt: string): string {
+  return dueAtToTokyoInputValue(dueAt).replace("T", " ");
+}
+
+export function resolveAssignmentDueAt(dueAt: string | null, dueDate: string): string | null {
+  return normalizeIsoDateTime(dueAt) || (
+    isValidDateString(dueDate)
+      ? tokyoLocalDateTimeToIso(`${dueDate}T23:59`)
+      : null
+  );
+}
+
+export function formatJapaneseDateTime(dueAt: string): string {
+  const date = new Date(dueAt);
+  if (Number.isNaN(date.getTime())) return "締切日時不明";
+
   return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: assignmentTimeZone,
+    year: "numeric",
     month: "long",
     day: "numeric",
     weekday: "short",
-  }).format(parseLocalDate(dateString));
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+
+export function getTokyoMonthDay(dueAt: string): { month: string; day: string } {
+  const parts = getTokyoDateTimeParts(dueAt);
+  return {
+    month: parts?.month ? String(Number(parts.month)) : "-",
+    day: parts?.day ? String(Number(parts.day)) : "-",
+  };
 }
 
 export function formatJapaneseToday(date: Date): string {
   return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: assignmentTimeZone,
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -108,19 +204,37 @@ export function formatJapaneseToday(date: Date): string {
   }).format(date);
 }
 
-export function sortByDueDate(assignments: Assignment[]): Assignment[] {
+export function sortByDueAt(assignments: Assignment[]): Assignment[] {
   return [...assignments].sort((a, b) => (
-    a.dueDate.localeCompare(b.dueDate) || a.createdAt.localeCompare(b.createdAt)
+    Date.parse(a.dueAt) - Date.parse(b.dueAt) || a.createdAt.localeCompare(b.createdAt)
   ));
 }
 
-export function isDueThisWeek(dateString: string, today: Date): boolean {
-  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const end = new Date(start);
-  end.setDate(start.getDate() + (6 - start.getDay()));
-  const dueDate = parseLocalDate(dateString);
+function getUtcCalendarDay(parts: Record<string, string>): number | null {
+  const year = Number(parts.year);
+  const month = Number(parts.month);
+  const day = Number(parts.day);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
 
-  return dueDate >= start && dueDate <= end;
+  const value = new Date(0);
+  value.setUTCFullYear(year, month - 1, day);
+  value.setUTCHours(0, 0, 0, 0);
+  return value.getTime();
+}
+
+export function isDueThisWeek(dueAt: string, today: Date): boolean {
+  const todayParts = getTokyoDateTimeParts(today);
+  const dueParts = getTokyoDateTimeParts(dueAt);
+  if (!todayParts || !dueParts) return false;
+
+  const start = getUtcCalendarDay(todayParts);
+  const dueDay = getUtcCalendarDay(dueParts);
+  if (start === null || dueDay === null) return false;
+
+  const daysUntilSunday = (7 - new Date(start).getUTCDay()) % 7;
+  const end = start + daysUntilSunday * 24 * 60 * 60 * 1000;
+
+  return dueDay >= start && dueDay <= end;
 }
 
 export function isAssignmentInput(value: unknown): value is AssignmentInput {
@@ -132,8 +246,8 @@ export function isAssignmentInput(value: unknown): value is AssignmentInput {
     assignment.title.trim().length > 0 &&
     typeof assignment.subject === "string" &&
     assignment.subject.trim().length > 0 &&
-    typeof assignment.dueDate === "string" &&
-    isValidDateString(assignment.dueDate) &&
+    typeof assignment.dueAt === "string" &&
+    normalizeIsoDateTime(assignment.dueAt) !== null &&
     priorities.includes(assignment.priority as (typeof priorities)[number]) &&
     statuses.includes(assignment.status as (typeof statuses)[number])
   );
@@ -146,13 +260,31 @@ export function parseLegacyAssignments(storedValue: string | null): AssignmentIn
     const parsedValue: unknown = JSON.parse(storedValue);
     if (!Array.isArray(parsedValue)) return [];
 
-    return parsedValue.filter(isAssignmentInput).map((assignment) => ({
-      title: assignment.title.trim(),
-      subject: assignment.subject.trim(),
-      dueDate: assignment.dueDate,
-      priority: assignment.priority,
-      status: assignment.status,
-    }));
+    return parsedValue.flatMap((value) => {
+      if (!isRecord(value)) return [];
+      const dueDate = typeof value.dueDate === "string" ? value.dueDate : "";
+      const dueAt = isValidDateString(dueDate)
+        ? tokyoLocalDateTimeToIso(`${dueDate}T23:59`)
+        : null;
+
+      if (
+        typeof value.title !== "string" || value.title.trim().length === 0 ||
+        typeof value.subject !== "string" || value.subject.trim().length === 0 ||
+        !dueAt ||
+        !priorities.includes(value.priority as (typeof priorities)[number]) ||
+        !statuses.includes(value.status as (typeof statuses)[number])
+      ) {
+        return [];
+      }
+
+      return [{
+        title: value.title.trim(),
+        subject: value.subject.trim(),
+        dueAt,
+        priority: value.priority as AssignmentInput["priority"],
+        status: value.status as AssignmentInput["status"],
+      }];
+    });
   } catch {
     return [];
   }
@@ -162,7 +294,7 @@ export function assignmentIdentity(assignment: AssignmentInput): string {
   return JSON.stringify([
     assignment.title,
     assignment.subject,
-    assignment.dueDate,
+    assignment.dueAt,
     assignment.priority,
     assignment.status,
   ]);

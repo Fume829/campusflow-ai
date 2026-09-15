@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
+import { dueAtToTokyoInputValue, tokyoLocalDateTimeToIso } from "../lib/assignments";
 import { priorities, statuses, type AssignmentInput } from "../types/assignment";
 
 type AssignmentFormModalProps = {
@@ -12,28 +13,40 @@ type AssignmentFormModalProps = {
   onSubmit: (values: AssignmentInput) => Promise<void>;
 };
 
-type FormErrors = Partial<Record<"title" | "subject" | "dueDate", string>>;
+type AssignmentFormValues = Omit<AssignmentInput, "dueAt"> & { dueAtLocal: string };
+type FormErrors = Partial<Record<"title" | "subject" | "dueAtLocal", string>>;
 
-const emptyFormValues: AssignmentInput = {
+const emptyFormValues: AssignmentFormValues = {
   title: "",
   subject: "",
-  dueDate: "",
+  dueAtLocal: "",
   priority: "中",
   status: "未着手",
 };
+
+function getInitialFormValues(initialValues?: AssignmentInput): AssignmentFormValues {
+  if (!initialValues) return emptyFormValues;
+  return {
+    title: initialValues.title,
+    subject: initialValues.subject,
+    dueAtLocal: dueAtToTokyoInputValue(initialValues.dueAt),
+    priority: initialValues.priority,
+    status: initialValues.status,
+  };
+}
 
 const fieldClassName =
   "mt-2 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-base text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 sm:text-sm";
 
 export function AssignmentFormModal({
   mode,
-  initialValues = emptyFormValues,
+  initialValues,
   isSubmitting,
   submitError,
   onClose,
   onSubmit,
 }: AssignmentFormModalProps) {
-  const [values, setValues] = useState<AssignmentInput>(initialValues);
+  const [values, setValues] = useState<AssignmentFormValues>(() => getInitialFormValues(initialValues));
   const [errors, setErrors] = useState<FormErrors>({});
   const titleInputRef = useRef<HTMLInputElement>(null);
   const isEditing = mode === "edit";
@@ -54,12 +67,12 @@ export function AssignmentFormModal({
     };
   }, [isSubmitting, onClose]);
 
-  const updateValue = <Key extends keyof AssignmentInput>(
+  const updateValue = <Key extends keyof AssignmentFormValues>(
     key: Key,
-    value: AssignmentInput[Key],
+    value: AssignmentFormValues[Key],
   ) => {
     setValues((current) => ({ ...current, [key]: value }));
-    if (key === "title" || key === "subject" || key === "dueDate") {
+    if (key === "title" || key === "subject" || key === "dueAtLocal") {
       setErrors((current) => ({ ...current, [key]: undefined }));
     }
   };
@@ -71,17 +84,22 @@ export function AssignmentFormModal({
 
     if (!values.title.trim()) nextErrors.title = "課題名を入力してください。";
     if (!values.subject.trim()) nextErrors.subject = "科目名を入力してください。";
-    if (!values.dueDate) nextErrors.dueDate = "締切日を入力してください。";
+    const dueAt = tokyoLocalDateTimeToIso(values.dueAtLocal);
+    if (!values.dueAtLocal) nextErrors.dueAtLocal = "締切日時を入力してください。";
+    else if (!dueAt) nextErrors.dueAtLocal = "正しい締切日時を入力してください。";
 
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
       return;
     }
+    if (!dueAt) return;
 
     await onSubmit({
-      ...values,
       title: values.title.trim(),
       subject: values.subject.trim(),
+      dueAt,
+      priority: values.priority,
+      status: values.status,
     });
   };
 
@@ -164,16 +182,18 @@ export function AssignmentFormModal({
           </label>
 
           <label className="block text-sm font-bold text-slate-700">
-            締切日 <span className="text-rose-500">*</span>
+            締切日時（日本時間） <span className="text-rose-500">*</span>
             <input
-              type="date"
-              value={values.dueDate}
-              onChange={(event) => updateValue("dueDate", event.target.value)}
-              aria-invalid={Boolean(errors.dueDate)}
-              aria-describedby={errors.dueDate ? "due-date-error" : undefined}
+              type="datetime-local"
+              step={60}
+              value={values.dueAtLocal}
+              onChange={(event) => updateValue("dueAtLocal", event.target.value)}
+              aria-invalid={Boolean(errors.dueAtLocal)}
+              aria-describedby={errors.dueAtLocal ? "due-at-help due-at-error" : "due-at-help"}
               className={fieldClassName}
             />
-            {errors.dueDate && <span id="due-date-error" className="mt-1.5 block text-xs font-medium text-rose-600">{errors.dueDate}</span>}
+            <span id="due-at-help" className="mt-1.5 block text-xs text-slate-400">時刻は日本時間（Asia/Tokyo）として保存されます。</span>
+            {errors.dueAtLocal && <span id="due-at-error" className="mt-1.5 block text-xs font-medium text-rose-600">{errors.dueAtLocal}</span>}
           </label>
 
           <div className="grid grid-cols-2 gap-3 sm:gap-4">

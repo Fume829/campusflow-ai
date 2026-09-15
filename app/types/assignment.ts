@@ -28,7 +28,7 @@ export type Assignment = {
   id: string;
   title: string;
   subject: string;
-  dueDate: string;
+  dueAt: string;
   priority: Priority;
   status: AssignmentStatus;
   createdAt: string;
@@ -39,5 +39,5 @@ export type Assignment = {
 
 export type AssignmentInput = Pick<
   Assignment,
-  "title" | "subject" | "dueDate" | "priority" | "status"
+  "title" | "subject" | "dueAt" | "priority" | "status"
 >;
