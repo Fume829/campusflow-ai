@@ -1,6 +1,56 @@
 export type AssignmentPriority = "高" | "中" | "低";
 export type AssignmentStatusValue = "未着手" | "進行中" | "完了";
-export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
+export type AssignmentFrequency = "weekly";
+
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json }
+  | Json[];
+
+export type AssignmentTemplateRow = {
+  id: string;
+  user_id: string;
+  title: string;
+  subject: string;
+  frequency: AssignmentFrequency;
+  due_weekday: number;
+  due_time: string;
+  priority: AssignmentPriority;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+type AssignmentTemplateInsert = {
+  id?: never;
+  user_id?: never;
+  title: string;
+  subject: string;
+  frequency?: AssignmentFrequency;
+  due_weekday: number;
+  due_time: string;
+  priority?: AssignmentPriority;
+  is_active?: boolean;
+  created_at?: never;
+  updated_at?: never;
+};
+
+type AssignmentTemplateUpdate = {
+  id?: never;
+  user_id?: never;
+  title?: string;
+  subject?: string;
+  frequency?: AssignmentFrequency;
+  due_weekday?: number;
+  due_time?: string;
+  priority?: AssignmentPriority;
+  is_active?: boolean;
+  created_at?: never;
+  updated_at?: never;
+};
 
 export type AssignmentRow = {
   id: string;
@@ -15,6 +65,7 @@ export type AssignmentRow = {
   updated_at: string;
   ai_plan: Json | null;
   ai_plan_generated_at: string | null;
+  template_id: string | null;
 };
 
 type AssignmentInsert = {
@@ -30,6 +81,7 @@ type AssignmentInsert = {
   updated_at?: never;
   ai_plan?: never;
   ai_plan_generated_at?: never;
+  template_id?: string | null;
 };
 
 type AssignmentUpdate = {
@@ -45,16 +97,31 @@ type AssignmentUpdate = {
   updated_at?: never;
   ai_plan?: Json | null;
   ai_plan_generated_at?: string | null;
+  template_id?: string | null;
 };
 
 export type Database = {
   public: {
     Tables: {
+      assignment_templates: {
+        Row: AssignmentTemplateRow;
+        Insert: AssignmentTemplateInsert;
+        Update: AssignmentTemplateUpdate;
+        Relationships: [];
+      };
       assignments: {
         Row: AssignmentRow;
         Insert: AssignmentInsert;
         Update: AssignmentUpdate;
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "assignments_template_id_fkey";
+            columns: ["template_id"];
+            isOneToOne: false;
+            referencedRelation: "assignment_templates";
+            referencedColumns: ["id"];
+          },
+        ];
       };
     };
     Views: Record<never, never>;

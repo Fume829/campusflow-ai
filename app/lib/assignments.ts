@@ -11,7 +11,7 @@ import {
 export const assignmentStorageKey = "campusflow-ai.assignments.v1";
 export const assignmentTimeZone = "Asia/Tokyo";
 export const assignmentSelectColumns =
-  "id,title,subject,due_date,due_at,priority,status,created_at,updated_at,ai_plan,ai_plan_generated_at" as const;
+  "id,title,subject,due_date,due_at,priority,status,created_at,updated_at,ai_plan,ai_plan_generated_at,template_id" as const;
 
 type SelectedAssignmentRow = Omit<AssignmentRow, "user_id">;
 type AssignmentInsert = Database["public"]["Tables"]["assignments"]["Insert"];
