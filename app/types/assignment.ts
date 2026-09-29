@@ -40,4 +40,10 @@ export type Assignment = {
 export type AssignmentInput = Pick<
   Assignment,
   "title" | "subject" | "dueAt" | "priority" | "status"
->;
+> & {
+  recurrence?: {
+    frequency: "weekly";
+    dueWeekday: number;
+    dueTime: string;
+  };
+};

@@ -125,7 +125,20 @@ export type Database = {
       };
     };
     Views: Record<never, never>;
-    Functions: Record<never, never>;
+    Functions: {
+      create_recurring_assignment: {
+        Args: {
+          p_due_at: string;
+          p_due_time: string;
+          p_due_weekday: number;
+          p_priority: AssignmentPriority;
+          p_status: AssignmentStatusValue;
+          p_subject: string;
+          p_title: string;
+        };
+        Returns: AssignmentRow;
+      };
+    };
     Enums: Record<never, never>;
     CompositeTypes: Record<never, never>;
   };

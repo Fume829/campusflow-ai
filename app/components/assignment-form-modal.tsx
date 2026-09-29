@@ -13,8 +13,10 @@ type AssignmentFormModalProps = {
   onSubmit: (values: AssignmentInput) => Promise<void>;
 };
 
-type AssignmentFormValues = Omit<AssignmentInput, "dueAt"> & { dueAtLocal: string };
+type AssignmentFormValues = Omit<AssignmentInput, "dueAt" | "recurrence"> & { dueAtLocal: string };
 type FormErrors = Partial<Record<"title" | "subject" | "dueAtLocal", string>>;
+
+const weekdayNames = ["日曜日", "月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日"] as const;
 
 const emptyFormValues: AssignmentFormValues = {
   title: "",
@@ -35,6 +37,23 @@ function getInitialFormValues(initialValues?: AssignmentInput): AssignmentFormVa
   };
 }
 
+function getWeeklyRecurrence(dueAt: string): NonNullable<AssignmentInput["recurrence"]> | null {
+  const tokyoValue = dueAtToTokyoInputValue(dueAt);
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(tokyoValue);
+  if (!match) return null;
+
+  const [, yearValue, monthValue, dayValue, hourValue, minuteValue] = match;
+  const calendarDate = new Date(0);
+  calendarDate.setUTCFullYear(Number(yearValue), Number(monthValue) - 1, Number(dayValue));
+  calendarDate.setUTCHours(0, 0, 0, 0);
+
+  return {
+    frequency: "weekly",
+    dueWeekday: calendarDate.getUTCDay(),
+    dueTime: `${hourValue}:${minuteValue}`,
+  };
+}
+
 const fieldClassName =
   "mt-2 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-base text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 sm:text-sm";
 
@@ -48,8 +67,11 @@ export function AssignmentFormModal({
 }: AssignmentFormModalProps) {
   const [values, setValues] = useState<AssignmentFormValues>(() => getInitialFormValues(initialValues));
   const [errors, setErrors] = useState<FormErrors>({});
+  const [isRecurring, setIsRecurring] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const isEditing = mode === "edit";
+  const recurringDueAt = tokyoLocalDateTimeToIso(values.dueAtLocal);
+  const recurrence = isRecurring && recurringDueAt ? getWeeklyRecurrence(recurringDueAt) : null;
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -94,13 +116,21 @@ export function AssignmentFormModal({
     }
     if (!dueAt) return;
 
-    await onSubmit({
+    const input: AssignmentInput = {
       title: values.title.trim(),
       subject: values.subject.trim(),
       dueAt,
       priority: values.priority,
       status: values.status,
-    });
+    };
+
+    if (!isEditing && isRecurring) {
+      const weeklyRecurrence = getWeeklyRecurrence(dueAt);
+      if (!weeklyRecurrence) return;
+      input.recurrence = weeklyRecurrence;
+    }
+
+    await onSubmit(input);
   };
 
   const handleBackdropClick = (event: MouseEvent<HTMLDivElement>) => {
@@ -195,6 +225,50 @@ export function AssignmentFormModal({
             <span id="due-at-help" className="mt-1.5 block text-xs text-slate-400">時刻は日本時間（Asia/Tokyo）として保存されます。</span>
             {errors.dueAtLocal && <span id="due-at-error" className="mt-1.5 block text-xs font-medium text-rose-600">{errors.dueAtLocal}</span>}
           </label>
+
+          {!isEditing && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p id="recurrence-label" className="text-sm font-bold text-slate-800">
+                    この課題を毎週登録する
+                  </p>
+                  <p id="recurrence-description" className="mt-1 text-xs leading-5 text-slate-500">
+                    同じ課題の登録を自動化できます。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isRecurring}
+                  aria-labelledby="recurrence-label"
+                  aria-describedby="recurrence-description"
+                  onClick={() => setIsRecurring((current) => !current)}
+                  disabled={isSubmitting}
+                  className={`relative h-11 w-16 shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-50 ${
+                    isRecurring ? "bg-indigo-600" : "bg-slate-300"
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`absolute left-1.5 top-1.5 size-8 rounded-full bg-white shadow-sm transition-transform ${
+                      isRecurring ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+              {isRecurring && (
+                <p
+                  className="mt-3 rounded-xl bg-indigo-50 px-3 py-2 text-sm font-bold text-indigo-700"
+                  aria-live="polite"
+                >
+                  {recurrence
+                    ? `毎週 ${weekdayNames[recurrence.dueWeekday]} ${recurrence.dueTime}`
+                    : "締切日時を入力すると、毎週の予定を確認できます。"}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
             <label className="block text-sm font-bold text-slate-700">
