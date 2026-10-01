@@ -172,11 +172,21 @@ export function Dashboard({
           assignment.id === updatedAssignment.id ? updatedAssignment : assignment
         ))));
       } else {
-        const { data, error } = await supabase
-          .from("assignments")
-          .insert(assignmentInputToInsert(values))
-          .select(assignmentSelectColumns)
-          .single();
+        const { data, error } = values.recurrence
+          ? await supabase.rpc("create_recurring_assignment", {
+              p_title: values.title,
+              p_subject: values.subject,
+              p_due_at: values.dueAt,
+              p_priority: values.priority,
+              p_status: values.status,
+              p_due_weekday: values.recurrence.dueWeekday,
+              p_due_time: values.recurrence.dueTime,
+            })
+          : await supabase
+              .from("assignments")
+              .insert(assignmentInputToInsert(values))
+              .select(assignmentSelectColumns)
+              .single();
 
         if (error || !data) {
           const message = "課題を追加できませんでした。時間をおいてもう一度お試しください。";

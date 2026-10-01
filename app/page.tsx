@@ -14,6 +14,11 @@ export default async function Home() {
   if (!userId) redirect("/login");
 
   const userEmail = typeof claims.email === "string" ? claims.email : "ログイン中";
+
+  const { error: recurringGenerationError } = await supabase.rpc(
+    "generate_recurring_assignments",
+  );
+
   const { data: assignmentRows, error: assignmentError } = await supabase
     .from("assignments")
     .select(assignmentSelectColumns)
@@ -29,7 +34,13 @@ export default async function Home() {
       userEmail={userEmail}
       userId={userId}
       initialAssignments={initialAssignments}
-      initialLoadError={assignmentError ? "課題を読み込めませんでした。時間をおいて再読み込みしてください。" : undefined}
+      initialLoadError={
+        assignmentError
+          ? "課題を読み込めませんでした。時間をおいて再読み込みしてください。"
+          : recurringGenerationError
+            ? "毎週課題の次回分を生成できませんでした。時間をおいて再読み込みしてください。"
+            : undefined
+      }
     />
   );
 }
