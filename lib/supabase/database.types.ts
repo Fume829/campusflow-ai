@@ -138,6 +138,10 @@ export type Database = {
         };
         Returns: AssignmentRow;
       };
+      generate_recurring_assignments: {
+        Args: never;
+        Returns: number;
+      };
     };
     Enums: Record<never, never>;
     CompositeTypes: Record<never, never>;
