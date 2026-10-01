@@ -11,6 +11,7 @@ import {
   assignmentStorageKey,
   formatJapaneseDateTime,
   formatJapaneseToday,
+  getDeadlineNotification,
   getTokyoMonthDay,
   isAiPlan,
   isDueThisWeek,
@@ -410,6 +411,25 @@ export function Dashboard({
   };
 
   const sortedAssignments = useMemo(() => sortByDueAt(assignments), [assignments]);
+
+  const deadlineNotifications = useMemo(
+  () =>
+    sortedAssignments
+      .map((assignment) => ({
+        assignment,
+        notification: getDeadlineNotification(assignment, today),
+      }))
+      .filter(
+        (
+          item,
+        ): item is {
+          assignment: Assignment;
+          notification: NonNullable<ReturnType<typeof getDeadlineNotification>>;
+        } => item.notification !== null,
+      ),
+  [sortedAssignments, today],
+);
+
   const aiPlanModalAssignment = assignments.find((assignment) => assignment.id === aiPlanModalAssignmentId) ?? null;
   const unfinishedCount = assignments.filter((assignment) => assignment.status !== "完了").length;
   const dueThisWeekCount = assignments.filter(
@@ -526,6 +546,96 @@ export function Dashboard({
             </article>
           ))}
         </section>
+
+        {deadlineNotifications.length > 0 && (
+          <section
+            aria-labelledby="deadline-notifications-heading"
+            className="mt-8"
+          >
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <div>
+                <h2
+                  id="deadline-notifications-heading"
+                  className="text-xl font-extrabold tracking-tight text-slate-900"
+                >
+                  🔔 締切通知
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  締切が近い課題や、期限を過ぎている課題があります。
+                </p>
+              </div>
+
+              <span className="shrink-0 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+                {deadlineNotifications.length}件
+              </span>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              {deadlineNotifications.map(({ assignment, notification }) => {
+                const appearance =
+                  notification.level === "overdue"
+                    ? {
+                        icon: "🚨",
+                        border: "border-rose-200",
+                        background: "bg-rose-50",
+                        label: "text-rose-700",
+                      }
+                    : notification.level === "urgent"
+                      ? {
+                          icon: "⚠️",
+                          border: "border-amber-200",
+                          background: "bg-amber-50",
+                          label: "text-amber-700",
+                        }
+                      : {
+                          icon: "🔔",
+                          border: "border-indigo-200",
+                          background: "bg-indigo-50",
+                          label: "text-indigo-700",
+                        };
+
+                return (
+                  <article
+                    key={assignment.id}
+                    className={`rounded-2xl border p-4 ${appearance.border} ${appearance.background}`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span
+                        aria-hidden="true"
+                        className="text-xl leading-none"
+                      >
+                        {appearance.icon}
+                      </span>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-slate-500">
+                          {assignment.subject}
+                        </p>
+
+                        <h3 className="mt-1 font-extrabold text-slate-900">
+                          {assignment.title}
+                        </h3>
+
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                          <p className={`text-sm font-bold ${appearance.label}`}>
+                            {notification.message}
+                          </p>
+
+                          <time
+                            dateTime={assignment.dueAt}
+                            className="text-xs font-semibold text-slate-500"
+                          >
+                            {formatJapaneseDateTime(assignment.dueAt)}
+                          </time>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.85fr)]">
           <section aria-labelledby="focus-heading">

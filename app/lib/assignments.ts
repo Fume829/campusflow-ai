@@ -299,3 +299,48 @@ export function assignmentIdentity(assignment: AssignmentInput): string {
     assignment.status,
   ]);
 }
+
+export type DeadlineNotificationLevel = "overdue" | "urgent" | "soon";
+
+export type DeadlineNotification = {
+  level: DeadlineNotificationLevel;
+  message: string;
+};
+
+export function getDeadlineNotification(
+  assignment: Assignment,
+  now: Date,
+): DeadlineNotification | null {
+  if (assignment.status === "完了") return null;
+
+  const dueTime = Date.parse(assignment.dueAt);
+  const nowTime = now.getTime();
+
+  if (Number.isNaN(dueTime)) return null;
+
+  const remainingMs = dueTime - nowTime;
+  const oneHourMs = 60 * 60 * 1000;
+
+  if (remainingMs < 0) {
+    return {
+      level: "overdue",
+      message: "締切を過ぎています",
+    };
+  }
+
+  if (remainingMs <= 24 * oneHourMs) {
+    return {
+      level: "urgent",
+      message: "締切まで24時間以内です",
+    };
+  }
+
+  if (remainingMs <= 72 * oneHourMs) {
+    return {
+      level: "soon",
+      message: "締切が近づいています",
+    };
+  }
+
+  return null;
+}
