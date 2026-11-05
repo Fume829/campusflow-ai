@@ -20,6 +20,7 @@ import {
 } from "../lib/assignments";
 import type { Assignment, AssignmentInput } from "../types/assignment";
 import { AssignmentFormModal } from "./assignment-form-modal";
+import { WebClassImportModal } from "./webclass-import-modal";
 import { AssignmentCard, PriorityBadge, StatusBadge } from "./assignment-card";
 import { DeleteConfirmationModal } from "./delete-confirmation-modal";
 import { AiPlanModal } from "./ai-plan-modal";
@@ -45,6 +46,8 @@ export function Dashboard({
   const [supabase] = useState(createClient);
   const [assignments, setAssignments] = useState<Assignment[]>(() => sortByDueAt(initialAssignments));
   const [formModal, setFormModal] = useState<FormModalState | null>(null);
+  const [isWebClassImportOpen, setIsWebClassImportOpen] = useState(false);
+  const [isImportingWebClass, setIsImportingWebClass] = useState(false);
   const [assignmentToDelete, setAssignmentToDelete] = useState<Assignment | null>(null);
   const [legacyAssignments, setLegacyAssignments] = useState<AssignmentInput[]>([]);
   const [isMigrationDismissed, setIsMigrationDismissed] = useState(false);
@@ -79,9 +82,14 @@ export function Dashboard({
   }, [userId]);
 
   const isDataOperationRunning =
-    isSavingForm || Boolean(updatingStatusId) || isDeleting || isMigrating || Boolean(generatingAiPlanId);
+    isSavingForm ||
+    isImportingWebClass ||
+    Boolean(updatingStatusId) ||
+    isDeleting ||
+    isMigrating ||
+    Boolean(generatingAiPlanId);
 
-  const restoreActionFocus = useCallback(() => {
+    const restoreActionFocus = useCallback(() => {
     window.setTimeout(() => {
       const target = lastActionButtonRef.current;
       if (target?.isConnected) target.focus();
@@ -210,6 +218,68 @@ export function Dashboard({
       setDataError(message);
     } finally {
       setIsSavingForm(false);
+    }
+  };
+
+  const handleWebClassImport = async (values: AssignmentInput[]) => {
+    if (isDataOperationRunning || values.length === 0) return;
+
+    setIsImportingWebClass(true);
+    clearMessages();
+
+    try {
+      const existingAssignments = await fetchAssignments();
+
+      if (!existingAssignments) {
+        setDataError("既存の課題を確認できませんでした。");
+        return;
+      }
+
+      // 同じ授業名・課題名の登録を避ける（簡易的な重複チェック）
+      const existingKeys = new Set(
+        existingAssignments.map((item) => JSON.stringify([item.subject, item.title]))
+      );
+
+      const assignmentsToImport = values.filter((item) => {
+        const key = JSON.stringify([item.subject, item.title]);
+        if (existingKeys.has(key)) return false;
+        existingKeys.add(key);
+        return true;
+      });
+
+      if (assignmentsToImport.length === 0) {
+        setDataError("選択した課題はすでに登録されています。");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("assignments")
+        .insert(assignmentsToImport.map(assignmentInputToInsert));
+
+      if (error) {
+        setDataError("WebClassの課題を登録できませんでした。");
+        return;
+      }
+
+      const refreshedAssignments = await fetchAssignments();
+
+      if (!refreshedAssignments) {
+        setDataError(
+          "課題は保存されましたが、一覧を更新できませんでした。画面を再読み込みしてください。"
+        );
+        return;
+      }
+
+      setAssignments(sortByDueAt(refreshedAssignments));
+      setIsWebClassImportOpen(false);
+      setDataError(null);
+      setSuccessMessage(
+        `WebClassから${assignmentsToImport.length}件の課題を登録しました。`
+      );
+    } catch {
+      setDataError("WebClassの課題を登録できませんでした。通信状況を確認してください。");
+    } finally {
+      setIsImportingWebClass(false);
     }
   };
 
@@ -469,6 +539,16 @@ export function Dashboard({
               {isLoggingOut ? "処理中…" : "ログアウト"}
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setIsWebClassImportOpen(true)}
+            disabled={isDataOperationRunning || isLoggingOut}
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-indigo-200 bg-white px-4 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            WebClassから取り込む
+          </button>
+
           <button
             ref={addButtonRef}
             type="button"
@@ -726,6 +806,18 @@ export function Dashboard({
           </section>
         </div>
       </div>
+
+      {isWebClassImportOpen && (
+        <WebClassImportModal
+          onClose={() => {
+            if (!isImportingWebClass) {
+              setIsWebClassImportOpen(false);
+            }
+          }}
+          onImport={handleWebClassImport}
+          isImporting={isImportingWebClass}
+        />
+      )}
 
       {formModal && (
         <AssignmentFormModal
